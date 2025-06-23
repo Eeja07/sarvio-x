@@ -1,0 +1,95 @@
+/* Reset default styles */
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  min-height: 100vh;
+}
+
+/* Custom slider styles untuk Tailwind */
+.slider {
+  background: #475569; /* slate-600 */
+}
+
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #06b6d4; /* cyan-500 */
+  cursor: pointer;
+  box-shadow: 0 0 2px 0 #000000;
+  border: none;
+}
+
+.slider::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #06b6d4; /* cyan-500 */
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 2px 0 #000000;
+}
+
+/* Firefox range track */
+.slider::-moz-range-track {
+  background: #475569;
+  height: 8px;
+  border-radius: 4px;
+}
+
+/* Webkit range track */
+.slider::-webkit-slider-runnable-track {
+  background: #475569;
+  height: 8px;
+  border-radius: 4px;
+}
+
+/* Custom scrollbar untuk dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b; /* slate-800 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569; /* slate-600 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b; /* slate-500 */
+}
+
+/* Smooth transitions */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Focus styles untuk accessibility */
+button:focus,
+input:focus,
+select:focus {
+  outline: 2px solid #06b6d4;
+  outline-offset: 2px;
+}
+
+/* Responsive text sizing */
+@media (max-width: 768px) {
+  .text-xl {
+    font-size: 1.125rem;
+  }
+  
+  .text-lg {
+    font-size: 1rem;
+  }
+}
