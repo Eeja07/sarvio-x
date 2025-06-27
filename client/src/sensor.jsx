@@ -1,34 +1,16 @@
 function Sensor({ sensorData }) {
   return (
-    <div className="bg-slate-800 rounded-lg p-6 space-y-6">
-      <h2 className="text-xl font-semibold text-cyan-400 mb-4">Sensor Data</h2>
-
-      {/* Flight Status */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3 flex items-center">
-          <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
-          Flight Status
+    <div className="bg-powder-blue rounded-lg p-6 space-y-6">
+      <div className="bg-deep-teal rounded-lg p-6">
+        <h3 className="text-ivory text-3xl font-medium mb-3 flex items-center">
+          <span className="w-5 h-5 bg-ivory rounded-full mr-2"></span>
+          Drone
         </h3>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-400">Height</span>
-            <span className="text-white">{sensorData.altitude}m</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400">Flight Time</span>
-            <span className="text-white">{sensorData.flightTime}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Power & Connection */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3">Power & Connection</h3>
-        <div className="space-y-3">
+        <div className="space-y-2 text-xl">
           <div>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-slate-400">Battery</span>
-              <span className="text-white">{sensorData.battery}%</span>
+            <div className="flex justify-between mb-2">
+              <span className="text-ivory">Battery</span>
+              <span className="text-ivory">{sensorData.battery}%</span>
             </div>
             <div className="w-full bg-slate-700 rounded-full h-2">
               <div 
@@ -37,10 +19,30 @@ function Sensor({ sensorData }) {
               />
             </div>
           </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Bluetooth</span>
+            <span className="text-ivory">{sensorData.bluetooth}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">State</span>
+            <span className={`text-ivory ${sensorData.state === 'ON' ? 'text-green-400' : 'text-red-400'}`}>
+              {sensorData.state}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Control</span>
+            <span className={`text-ivory ${sensorData.control === 'Manual' ? 'text-yellow-400' : 'text-green-400'}`}>
+              {sensorData.control}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Flight Time</span>
+            <span className="text-ivory">{sensorData.flightTime} min</span>
+          </div>
           <div>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-slate-400">WiFi Signal</span>
-              <span className="text-white">{sensorData.wifiSignal}%</span>
+            <div className="flex justify-between mb-2">
+              <span className="text-ivory">WiFi Signal</span>
+              <span className="text-ivory">{sensorData.wifiSignal}%</span>
             </div>
             <div className="w-full bg-slate-700 rounded-full h-2">
               <div 
@@ -49,95 +51,76 @@ function Sensor({ sensorData }) {
               />
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Speed */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3">Speed (m/s)</h3>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <div className="text-slate-400 text-xs">X-Axis</div>
-            <div className="text-cyan-400 font-mono">-0.7</div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs">Y-Axis</div>
-            <div className="text-cyan-400 font-mono">0.1</div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs">Z-Axis</div>
-            <div className="text-cyan-400 font-mono">0.8</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Environmental */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3">Environmental</h3>
-        <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-slate-400">Temperature</span>
-            <span className="text-white">{sensorData.temperature}°C</span>
+            <span className="text-ivory">SDK Version</span>
+            <span className="text-ivory">{sensorData.sdkVersion}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Barometer</span>
-            <span className="text-white">{sensorData.barometer} hPa</span>
+            <span className="text-ivory">Serial Number</span>
+            <span className="text-ivory">{sensorData.serialNumber}</span>
           </div>
         </div>
       </div>
-
-      {/* Accelerometer */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3">Accelerometer (m/s²)</h3>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <div className="text-slate-400 text-xs">X</div>
-            <div className="text-cyan-400 font-mono">{sensorData.accelerometer.x}</div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs">Y</div>
-            <div className="text-cyan-400 font-mono">{sensorData.accelerometer.y}</div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs">Z</div>
-            <div className="text-cyan-400 font-mono">{sensorData.accelerometer.z}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Gyroscope */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3">Gyroscope (°)</h3>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <div className="text-slate-400 text-xs">Pitch</div>
-            <div className="text-cyan-400 font-mono">{sensorData.gyroscope.pitch}</div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs">Roll</div>
-            <div className="text-cyan-400 font-mono">{sensorData.gyroscope.roll}</div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs">Yaw</div>
-            <div className="text-cyan-400 font-mono">{sensorData.gyroscope.yaw}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* GPS Position */}
-      <div className="bg-slate-900 rounded-lg p-4">
-        <h3 className="text-white font-medium mb-3">GPS Position</h3>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-400">Latitude</span>
-            <span className="text-white font-mono">{sensorData.gps.latitude}</span>
+      <div className="bg-deep-teal rounded-lg p-6">
+        <h3 className="text-ivory text-3xl font-medium mb-3 flex items-center">
+          <span className="w-5 h-5 bg-ivory rounded-full mr-2"></span>
+          Sensor
+        </h3>
+        <div className="space-y-2 text-xl">
+          <div className="flex justify-between text-xl mb-1">
+            <span className="text-ivory">Height</span>
+            <span className="text-ivory">{sensorData.Height}%</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Longitude</span>
-            <span className="text-white font-mono">{sensorData.gps.longitude}</span>
+            <span className="text-ivory">Barometer</span>
+            <span className="text-ivory">{sensorData.barometer}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Temperature</span>
+            <span className="text-ivory">{sensorData.temperature}°C</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">IMU Attitude(Pitch)</span>
+            <span className="text-ivory">{sensorData.imuAttitude.pitch}°</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">IMU Attitude(Roll)</span>
+            <span className="text-ivory">{sensorData.imuAttitude.roll}°</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">IMU Attitude(Yaw)</span>
+            <span className="text-ivory">{sensorData.imuAttitude.yaw}°</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Acceleration(X)</span>
+            <span className="text-ivory">{sensorData.acceleration.x} m/s²</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Acceleration(Y)</span>
+            <span className="text-ivory">{sensorData.acceleration.y} m/s²</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Acceleration(Z)</span>
+            <span className="text-ivory">{sensorData.acceleration.z} m/s²</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Speed(X)</span>
+            <span className="text-ivory">{sensorData.speed.x} m/s</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Speed(Y)</span>
+            <span className="text-ivory">{sensorData.speed.y} m/s</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Speed(Z)</span>
+            <span className="text-ivory">{sensorData.speed.z} m/s</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ivory">Distance TOF</span>
+            <span className="text-ivory">{sensorData.distanceTOF}</span>
           </div>
         </div>
-      </div>
+      </div>     
     </div>
   )
 }

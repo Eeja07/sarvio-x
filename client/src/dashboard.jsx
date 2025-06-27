@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react'
 import io from 'socket.io-client'
 import Control from './control'
-import Sensor from './sensor.jsx'
-import Video from './video'
+import Sensor from './sensor'
 
 function Dashboard() {
   // State untuk drone control
   const [controlMode, setControlMode] = useState('Joystick Mode')
   const [speed, setSpeed] = useState(51)
   const [rotation, setRotation] = useState(90)
-  const [joystickPosition, setJoystickPosition] = useState({ x: 0, y: 0 })
+  const [leftJoystickPosition, setLeftJoystickPosition] = useState({ x: 0, y: 0 })
+  const [rightJoystickPosition, setRightJoystickPosition] = useState({ x: 0, y: 0 })
   
   // Socket connection state
   const [socket, setSocket] = useState(null)
@@ -18,15 +18,21 @@ function Dashboard() {
   const [isFlying, setIsFlying] = useState(false)
   
   const [sensorData, setSensorData] = useState({
-    altitude: 0.2,
-    flightTime: '00:00',
-    battery: 0,
-    wifiSignal: 75,
+    battery: 75,
+    bluetooth: 'Connected',
+    state: 'ON',
+    control: 'Manual',
+    flightTime: 5,
+    wifiSignal: 85,
+    sdkVersion: '2.0',
+    serialNumber: 'TELLO123',
+    Height: 150,
+    barometer: '1013.25 hPa',
     temperature: 25,
-    barometer: 1013.3,
-    accelerometer: { x: -1.7, y: 1.9, z: 9.3 },
-    gyroscope: { pitch: 1.0, roll: 3.2, yaw: -0.3 },
-    gps: { latitude: 0.000000, longitude: 0.000000 }
+    imuAttitude: { pitch: 0, roll: 0, yaw: 0 },
+    acceleration: { x: 0, y: 0, z: 9.8 },
+    speed: { x: 0, y: 0, z: 0 },
+    distanceTOF: 100.0
   })
 
   // Flight time tracking
@@ -162,8 +168,10 @@ function Dashboard() {
     setSpeed,
     rotation,
     setRotation,
-    joystickPosition,
-    setJoystickPosition,
+    leftJoystickPosition,
+    setLeftJoystickPosition,
+    rightJoystickPosition,
+    setRightJoystickPosition,
     socket,
     isConnected,
     telloConnected,
@@ -180,91 +188,67 @@ function Dashboard() {
   }
   
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
+    <div className="min-h-screen bg-deep-teal text-white">
       {/* Header */}
-      <header className="bg-slate-800 border-b border-slate-700 p-4">
+      <header className="bg-powder-blue border-b border-slate-700 p-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-cyan-700 rounded flex items-center justify-center">
-              <span className="text-white font-bold text-sm">SX</span>
-            </div>
+          <div className="flex items-center space-x-4">
             <div>
-              <h1 className="text-xl font-bold">SARVIO-X</h1>
-              <p className="text-sm text-slate-400">DJI Tello Control System</p>
+              <h1 className="text-deep-teal text-4xl font-bold">SARVIO-X</h1>
+            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+            <div>
+              <h1 className="text-deep-teal text-4xl font-bold mb-3 flex items-center">
+              <span className="w-5 h-5 bg-deep-teal rounded-full mr-2"></span>Connected</h1>
             </div>
           </div>
           
-          <div className="flex items-center space-x-4">
-            <button className="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm transition-colors">
-              Media Gallery
-            </button>
-            
-            {/* Multi-level Status */}
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-sm">Backend:</span>
-                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                <span className="text-sm">{isConnected ? 'Connected' : 'Disconnected'}</span>
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <span className="text-sm">Tello:</span>
-                <span className={`w-2 h-2 rounded-full ${telloConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                <span className="text-sm">{telloConnected ? 'Connected' : 'Disconnected'}</span>
-              </div>
-              
-              {isFlying && (
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm">Flying:</span>
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-                  <span className="text-sm text-cyan-400">Active</span>
-                </div>
-              )}
-            </div>
-            
-            {/* Connection Control Buttons */}
+          
+          <div className="flex items-center space-x-4">                      
             <div className="flex gap-2">
               {!telloConnected ? (
                 <button 
                   onClick={handleConnect}
                   disabled={!isConnected}
-                  className={`px-4 py-2 rounded font-medium transition-colors ${
+                  className={`rounded-2xl px-15 py-5 text-4xl font-medium transition-colors ${
                     !isConnected
-                      ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-                      : 'bg-green-600 hover:bg-green-700 text-white'
+                      ? 'bg-dark-cyan text-ivory cursor-not-allowed'
+                      : 'bg-dark-cyan hover:bg-deep-teal text-white'
                   }`}
                 >
-                  Connect Tello
+                  Connect
                 </button>
               ) : (
                 <button 
                   onClick={handleDisconnect}
-                  className="px-4 py-2 rounded font-medium transition-colors bg-red-600 hover:bg-red-700 text-white"
+                  className="px-15 py-5 rounded-2xl text-4xl rounded font-medium transition-colors bg-red-600 hover:bg-red-700 text-white"
                 >
                   Disconnect
                 </button>
               )}
             </div>
+            <button className="bg-dark-cyan rounded-2xl hover:bg-deep-teal px-15 py-5 text-4xl rounded transition-colors">
+              Gallery
+            </button>
+          
           </div>
         </div>
       </header>
 
       {/* Main Dashboard */}
-      <main className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      <main className="p-15">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
           <div className="order-1">
             <Control {...controlProps} />
           </div>
           <div className="order-2">
-            <Video {...videoProps} />
-          </div>
-          <div className="order-3">
             <Sensor {...sensorProps} />
           </div>
         </div>
       </main>
 
-      {/* Footer */}
+      {/* Footer
       <footer className="bg-slate-800 border-t border-slate-700 p-4">
         <div className="flex items-center justify-between text-sm text-slate-400">
           <div className="flex items-center space-x-4">
@@ -286,7 +270,7 @@ function Dashboard() {
             </span>
           </div>
         </div>
-      </footer>
+      </footer> */}
 
       <style jsx>{`
         .slider::-webkit-slider-thumb {

@@ -13,13 +13,13 @@ function VirtualJoystick({ joystickPosition, setJoystickPosition }) {
   };
 
   return (
-    <div className="relative w-32 h-32 bg-slate-800 rounded-full border-2 border-slate-600">
+    <div className="relative w-32 h-32 bg-deep-teal rounded-full border-2 border-slate-600">
       <div 
-        className="absolute inset-2 bg-slate-700 rounded-full cursor-pointer"
+        className="absolute inset-2 bg-dark-cyan rounded-full cursor-pointer"
         onMouseMove={handleJoystickMove}
       >
         <div 
-          className="absolute w-6 h-6 bg-cyan-400 rounded-full transform -translate-x-1/2 -translate-y-1/2"
+          className="absolute w-6 h-6 bg-light-blue rounded-full transform -translate-x-1/2 -translate-y-1/2"
           style={{
             left: `${50 + (joystickPosition.x * 0.3)}%`,
             top: `${50 + (joystickPosition.y * 0.3)}%`
