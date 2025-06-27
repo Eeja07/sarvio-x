@@ -238,11 +238,11 @@ function Dashboard() {
 
       {/* Main Dashboard */}
       <main className="p-15">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-          <div className="order-1">
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-3 w-full h-full">
             <Control {...controlProps} />
           </div>
-          <div className="order-2">
+          <div className="flex-1 w-full h-full">
             <Sensor {...sensorProps} />
           </div>
         </div>

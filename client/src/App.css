@@ -93,3 +93,24 @@ select:focus {
     font-size: 1rem;
   }
 }
+/* Prevent text selection during drag */
+.select-none {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Prevent scrolling during joystick use */
+.joystick-container {
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+/* Larger touch targets for mobile */
+@media (max-width: 768px) {
+  .joystick {
+    width: 140px;
+    height: 140px;
+  }
+}

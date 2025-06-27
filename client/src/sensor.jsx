@@ -1,6 +1,9 @@
 function Sensor({ sensorData }) {
   return (
-    <div className="bg-powder-blue rounded-lg p-6 space-y-6">
+    <div className="bg-powder-blue rounded-lg p-6 space-y-6 h-290">
+      <div className="w-full bg-light-blue rounded-lg p-4 mb-6">
+        <h2 className="text-4xl font-bold text-deep-teal text-center">INFORMATION PANEL</h2>  
+      </div>
       <div className="bg-deep-teal rounded-lg p-6">
         <h3 className="text-ivory text-3xl font-medium mb-3 flex items-center">
           <span className="w-5 h-5 bg-ivory rounded-full mr-2"></span>
