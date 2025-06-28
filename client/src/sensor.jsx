@@ -14,6 +14,7 @@ import {
   Move3D, 
   Zap, 
   Ruler,
+  Gauge as SpeedIcon,
 } from "lucide-react";
 
 function Sensor({ sensorData }) {
@@ -56,12 +57,22 @@ function Sensor({ sensorData }) {
             <span className="text-ivory">{sensorData.bluetooth}</span>
           </div>
           
+          {/* Speed - NEW */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-m">
+              <SpeedIcon className="w-5 h-5 text-ivory" />
+              <span className="text-ivory">Speed</span>
+            </div>
+            <span className="text-ivory">{sensorData.speed} cm/s</span>
+          </div>
+          
           {/* FPS */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-m">
               <Monitor className="w-5 h-5 text-ivory" />
               <span className="text-ivory">FPS</span>
             </div>
+            <span className="text-ivory">{sensorData.FPS}</span>
           </div>
           
           <div className="flex items-center justify-between">
@@ -133,7 +144,7 @@ function Sensor({ sensorData }) {
               <ArrowUp className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Height</span>
             </div>
-            <span className="text-ivory">{sensorData.Height}%</span>
+            <span className="text-ivory">{sensorData.Height} cm</span>
           </div>
           
           {/* Barometer */}
@@ -142,7 +153,7 @@ function Sensor({ sensorData }) {
               <Gauge className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Barometer</span>
             </div>
-            <span className="text-ivory">{sensorData.barometer}Hpa</span>
+            <span className="text-ivory">{sensorData.barometer} Hpa</span>
           </div>
           
           {/* Temperature */}
@@ -214,7 +225,7 @@ function Sensor({ sensorData }) {
               <Zap className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Speed(X)</span>
             </div>
-            <span className="text-ivory">{sensorData.speed.x} m/s</span>
+            <span className="text-ivory">{sensorData.speed_sensor.x} m/s</span>
           </div>
           
           {/* Speed Y */}
@@ -223,7 +234,7 @@ function Sensor({ sensorData }) {
               <Zap className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Speed(Y)</span>
             </div>
-            <span className="text-ivory">{sensorData.speed.y} m/s</span>
+            <span className="text-ivory">{sensorData.speed_sensor.y} m/s</span>
           </div>
           
           {/* Speed Z */}
@@ -232,7 +243,7 @@ function Sensor({ sensorData }) {
               <Zap className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Speed(Z)</span>
             </div>
-            <span className="text-ivory">{sensorData.speed.z} m/s</span>
+            <span className="text-ivory">{sensorData.speed_sensor.z} m/s</span>
           </div>
           
           {/* Distance TOF */}
@@ -241,7 +252,7 @@ function Sensor({ sensorData }) {
               <Ruler className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Distance TOF</span>
             </div>
-            <span className="text-ivory">{sensorData.distanceTOF}</span>
+            <span className="text-ivory">{sensorData.distanceTOF} cm</span>
           </div>
         </div>
       </div>     
