@@ -1,4 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { 
+  RotateCcw, 
+  RotateCw, 
+  ArrowUp, 
+  ArrowDown, 
+  Plane, 
+  Settings, 
+  PlaneLanding,
+  AlertTriangle,
+  Gamepad2, 
+  Square, 
+  Keyboard, 
+  Gamepad, 
+  Bot 
+} from "lucide-react";
+
+// Mapping mode ke ikon yang sesuai
+const modeIcons = {
+  'Joystick Mode': Gamepad2,
+  'Button Mode': Square,
+  'Keyboard Mode': Keyboard,
+  'Controller Mode': Gamepad,
+  'Autonomous Mode': Bot
+};
+
+
 import VirtualJoystick from './joystick'
 
 function Control({ 
@@ -102,55 +128,56 @@ function Control({
     }
   }, [controlMode, telloConnected, isFlying])
   const handleDirectionalMove = useCallback((direction) => {
-  if (!socket || !isFlying) return
-  
-  const moveSpeed = speed
-  let controls = {
-    left_right: 0,
-    for_back: 0,
-    up_down: 0,
-    yaw: 0
-  }
-  
-  switch (direction) {
-    case 'forward':
-      controls.for_back = moveSpeed
-      break
-    case 'backward':
-      controls.for_back = -moveSpeed  
-      break
-    case 'left':
-      controls.left_right = -moveSpeed
-      break
-    case 'right':
-      controls.left_right = moveSpeed 
-      break
-    case 'up':
-      controls.up_down = moveSpeed
-      break 
-    case 'down':
-      controls.up_down = -moveSpeed
-      break
-    case 'yaw_left':
-      controls.yaw = -moveSpeed * 0.5
-      break
-    case 'yaw_right':
-      controls.yaw = moveSpeed * 0.5
-      break
-    default:
-      console.warn(`Unknown direction: ${direction}`)
-      return
-  }
-  
-  socket.emit('move_control', controls)
-  
-  // Stop movement setelah durasi singkat untuk button mode
-  setTimeout(() => {
-    if (socket) {
-      socket.emit('stop_movement')
+    if (!socket || !isFlying) return
+    
+    const moveSpeed = speed
+    let controls = {
+      left_right: 0,
+      for_back: 0,
+      up_down: 0,
+      yaw: 0
     }
-  }, 300)
-}, [socket, isFlying, speed])
+    
+    switch (direction) {
+      case 'forward':
+        controls.for_back = moveSpeed
+        break
+      case 'backward':
+        controls.for_back = -moveSpeed  
+        break
+      case 'left':
+        controls.left_right = -moveSpeed
+        break
+      case 'right':
+        controls.left_right = moveSpeed 
+        break
+      case 'up':
+        controls.up_down = moveSpeed
+        break 
+      case 'down':
+        controls.up_down = -moveSpeed
+        break
+      case 'yaw_left':
+        controls.yaw = -moveSpeed * 1
+        break
+      case 'yaw_right':
+        controls.yaw = moveSpeed * 1
+        break
+      default:
+        console.warn(`Unknown direction: ${direction}`)
+        return
+    }
+    
+    socket.emit('move_control', controls)
+    
+    // Stop movement setelah durasi singkat untuk button mode
+    setTimeout(() => {
+      if (socket) {
+        socket.emit('stop_movement')
+      }
+    }, 300)
+  }, [socket, isFlying, speed])
+
   useEffect(() => {
     if (controlMode === 'Joystick Mode' && isFlying && socket) {
       const leftControls = {
@@ -263,15 +290,51 @@ function Control({
   }
 
   const handleFlip = (direction) => {
-    if (socket && isFlying) {
-      // TODO: Add flip commands to backend
-      console.log(`Flip ${direction} - to be implemented`)
+    if (!socket || !isFlying) return
+    
+    const moveSpeed = speed
+    let controls = {
+      left_right: 0,
+      for_back: 0,
+      up_down: 0,
+      yaw: 0
     }
-  }
+    
+    switch (direction) {
+      case 'forward':
+        controls.for_back = moveSpeed
+        break
+      case 'backward':
+        controls.for_back = -moveSpeed  
+        break
+      case 'left':
+        controls.left_right = -moveSpeed
+        break
+      case 'right':
+        controls.left_right = moveSpeed 
+        break
+      case 'up':
+        controls.up_down = moveSpeed
+        break 
+      case 'down':
+        controls.up_down = -moveSpeed
+        break
+      case 'yaw_left':
+        controls.yaw = -moveSpeed * 1
+        break
+      case 'yaw_right':
+        controls.yaw = moveSpeed * 1
+        break
+      default:
+        console.warn(`Unknown direction: ${direction}`)
+        return
+    }
+    
+    socket.emit('move_control', controls)}
 
   const handleRotation = (direction) => {
     if (socket && isFlying) {
-      const rotSpeed = speed * 0.5 // Slower rotation
+      const rotSpeed = speed * 1 // Slower rotation
       const controls = {
         left_right: 0,
         for_back: 0,
@@ -319,7 +382,6 @@ function Control({
     }
   }, [socket, isConnected])
 
-  // Effect terpisah untuk handle connection changes
   useEffect(() => {
     if (!isConnected) {
       setIsStreaming(false)
@@ -350,7 +412,7 @@ function Control({
         {/* Video and Controls Section */}
         <div className="order-2 space-y-6">
           {/* Video Stream */}
-          <div className="relative w-full h-140 bg-deep-teal rounded-lg flex items-center justify-center mb-6">
+          <div className="relative w-full h-140 bg-deep-teal rounded-lg flex items-center justify-center mb-5">
             {videoFrame ? (
               <img
                 src={videoFrame}
@@ -386,111 +448,110 @@ function Control({
             )}
           </div>
           {controlMode === 'Joystick Mode' && (
-            <div className="space-y-4">
-              {/* Flip Controls and Emergency */}
-              <div className="flex flex-wrap justify-center items-center gap-2">
-                <div className="flex gap-1">
+              <div className="space-y-4">
+                <div className="rounded-xl p-4 w-full h-43 bg-deep-teal">
+                <div className="flex flex-wrap justify-center items-center gap-2">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleFlip('left')}
+                      disabled={!telloConnected || !isFlying}
+                      className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
+                        telloConnected && isFlying
+                          ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                          : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
+                      }`}
+                    >
+                      <RotateCcw className="w-8 h-8 mb-1" />
+                    </button>
+                    <button
+                      onClick={() => handleFlip('right')}
+                      disabled={!telloConnected || !isFlying}
+                      className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
+                        telloConnected && isFlying
+                          ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                          : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
+                      }`}
+                    >
+                      <RotateCw className="w-8 h-8 mb-1" />
+                    </button>
+                  </div>
+
                   <button
-                    onClick={() => handleFlip('left')}
-                    disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
-                      telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                    onClick={handleEmergency}
+                    disabled={!telloConnected}
+                    className={`w-70 h-15 rounded-xl flex items-center justify-center gap-2 transition-colors ${
+                      telloConnected
+                        ? 'bg-red-600 text-white hover:bg-red-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    L
+                    <AlertTriangle className="w-8 h-8" />
                   </button>
-                  <button
-                    onClick={() => handleFlip('right')}
-                    disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
-                      telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    R
-                  </button>
+
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleFlip('up')}
+                      disabled={!telloConnected || !isFlying}
+                      className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
+                        telloConnected && isFlying
+                          ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                          : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
+                      }`}
+                    >
+                      <ArrowUp className="w-8 h-8 mb-1" />
+                    </button>
+                    <button
+                      onClick={() => handleFlip('down')}
+                      disabled={!telloConnected || !isFlying}
+                      className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
+                        telloConnected && isFlying
+                          ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                          : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
+                      }`}
+                    >
+                      <ArrowDown className="w-8 h-8 mb-1" />
+                    </button>
+                  </div>
                 </div>
 
-                <button
-                  onClick={handleEmergency}
-                  disabled={!telloConnected}
-                  className={`w-32 h-12 md:w-55 md:h-18 rounded-xl transition-colors ${
-                    telloConnected
-                      ? 'bg-deep-teal text-lg md:text-2xl text-white hover:bg-red-700'
-                      : 'bg-deep-teal text-lg md:text-2xl text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  Emergency
-                </button>
-
-                <div className="flex gap-1">
+                {/* Main Action Buttons */}
+                <div className="flex justify-center gap-2 p-4">
                   <button
-                    onClick={() => handleFlip('up')}
-                    disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
-                      telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                    onClick={handleTakeoff}
+                    disabled={!telloConnected || isFlying}
+                    className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex flex-col items-center justify-center transition-colors ${
+                      telloConnected && !isFlying
+                        ? 'bg-green-600 text-ivory hover:bg-green-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    U
+                    <Plane className="w-8 h-8 mb-1" />
                   </button>
                   <button
-                    onClick={() => handleFlip('down')}
+                    onClick={handleSpeed}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex flex-col items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    D
+                    <Settings className="w-8 h-8 mb-1" />
+                  </button>
+                  <button
+                    onClick={handleLand}
+                    disabled={!telloConnected || !isFlying}
+                    className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex flex-col items-center justify-center transition-colors ${
+                      telloConnected && isFlying
+                        ? 'bg-orange-600 text-ivory hover:bg-orange-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
+                    }`}
+                  >
+                    <PlaneLanding className="w-8 h-8 mb-1" />
                   </button>
                 </div>
-              </div>
-
-              {/* Main Action Buttons */}
-              <div className="flex justify-center gap-2">
-                <button
-                  onClick={handleTakeoff}
-                  disabled={!telloConnected || isFlying}
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
-                    telloConnected && !isFlying
-                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  T
-                </button>
-                <button
-                  onClick={handleSpeed}
-                  disabled={!telloConnected || !isFlying}
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
-                    telloConnected && isFlying
-                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  S
-                </button>
-                <button
-                  onClick={handleLand}
-                  disabled={!telloConnected || !isFlying}
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
-                    telloConnected && isFlying
-                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  L
-                </button>
-              </div>
-
-              {/* Dual Joystick */}
-              <div className="flex flex-col md:flex-row justify-center md:justify-between items-center gap-4 px-4 md:px-15">
+              </div>             
+              <div className="flex flex-col md:flex-row justify-center md:justify-between items-center p-8 gap-4 px-4 md:px-15">
                 <div className="text-center">
                   <VirtualJoystick 
                     joystickPosition={leftJoystickPosition}
@@ -508,109 +569,111 @@ function Control({
           )}
           {controlMode === 'Button Mode' && (
             <div className="space-y-4">
-              {/* Flip Controls and Emergency */}
+              <div className="rounded-xl p-4 w-full h-43 bg-deep-teal">
               <div className="flex flex-wrap justify-center items-center gap-2">
                 <div className="flex gap-1">
                   <button
                     onClick={() => handleFlip('left')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    L
+                    <RotateCcw className="w-8 h-8 mb-1" />
                   </button>
                   <button
                     onClick={() => handleFlip('right')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    R
+                    <RotateCw className="w-8 h-8 mb-1" />
                   </button>
                 </div>
 
                 <button
                   onClick={handleEmergency}
                   disabled={!telloConnected}
-                  className={`w-32 h-12 md:w-55 md:h-18 rounded-xl transition-colors ${
+                  className={`w-70 h-15 rounded-xl flex items-center justify-center gap-2 transition-colors ${
                     telloConnected
-                      ? 'bg-deep-teal text-lg md:text-2xl text-white hover:bg-red-700'
-                      : 'bg-deep-teal text-lg md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                   }`}
                 >
-                  Emergency
+                  <AlertTriangle className="w-8 h-8" />
                 </button>
 
                 <div className="flex gap-1">
                   <button
                     onClick={() => handleFlip('up')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    U
+                    <ArrowUp className="w-8 h-8 mb-1" />
                   </button>
                   <button
                     onClick={() => handleFlip('down')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-15 h-15 rounded-xl flex flex-col items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
-                    D
+                    <ArrowDown className="w-8 h-8 mb-1" />
                   </button>
                 </div>
               </div>
 
               {/* Main Action Buttons */}
-              <div className="flex justify-center gap-2">
+              <div className="flex justify-center gap-2 p-4">
                 <button
                   onClick={handleTakeoff}
                   disabled={!telloConnected || isFlying}
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
+                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex flex-col items-center justify-center transition-colors ${
                     telloConnected && !isFlying
-                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-green-600 text-ivory hover:bg-green-700'
+                      : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                   }`}
                 >
-                  T
+                  <Plane className="w-8 h-8 mb-1" />
                 </button>
                 <button
                   onClick={handleSpeed}
                   disabled={!telloConnected || !isFlying}
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
+                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex flex-col items-center justify-center transition-colors ${
                     telloConnected && isFlying
-                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                   }`}
                 >
-                  S
+                  <Settings className="w-8 h-8 mb-1" />
                 </button>
                 <button
                   onClick={handleLand}
                   disabled={!telloConnected || !isFlying}
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
+                  className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex flex-col items-center justify-center transition-colors ${
                     telloConnected && isFlying
-                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-orange-600 text-white hover:bg-orange-700'
+                      : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                   }`}
                 >
-                  L
+                  <PlaneLanding className="w-8 h-8 mb-1" />
                 </button>
               </div>
+            </div>
+            <div className="rounded-xl w-full h-62 bg-deep-teal">  
               {/* Directional Control Layout */}
-              <div className="flex flex-col md:flex-row justify-center md:justify-between items-center gap-8 md:gap-4 px-4 md:px-8 w-full max-w-md md:max-w-full mx-auto">
+              <div className="p-3 flex flex-col md:flex-row justify-center md:justify-between items-center gap-8 md:gap-4 px-4 md:px-8 w-full max-w-md md:max-w-full mx-auto">
                 {/* Left D-Pad (Movement Controls) */}
                 <div className="grid grid-cols-3 grid-rows-3 gap-1 w-fit">
                   {/* Empty top-left */}
@@ -619,10 +682,10 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('forward')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ↑
@@ -634,24 +697,24 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('left')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ⟵
                   </button>
                   {/* Center (empty or logo) */}
-                  <div className="w-20 h-20"></div>
+                  <div className="w-18 h-18"></div>
                   {/* Right */}
                   <button
                     onClick={() => handleDirectionalMove('right')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ⟶ 
@@ -663,10 +726,10 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('backward')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ↓
@@ -683,10 +746,10 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('up')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl text-2xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ⇈
@@ -698,24 +761,24 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('yaw_left')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ⇇
                   </button>
                   {/* Center (empty) */}
-                  <div className="w-20 h-20"></div>
+                  <div className="w-18 h-18"></div>
                   {/* Yaw Right */}
                   <button
                     onClick={() => handleDirectionalMove('yaw_right')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ⇉
@@ -727,10 +790,10 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('down')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
-                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
                     ⇊
@@ -740,6 +803,7 @@ function Control({
                 </div>
               </div>
             </div>
+          </div>
           )}
           {controlMode === 'Keyboard Mode' && (
             <div className="flex flex-col lg:flex-row w-full bg-deep-teal rounded-lg p-9 mb-2 gap-6">
@@ -827,39 +891,39 @@ function Control({
             <div className="space-y-4">
               {/* Flip Controls and Emergency */}
               <div className="flex flex-wrap justify-center items-center gap-2">
-                <div className="flex gap-1 p-40 space-x-10">
-                <button
-                  onClick={handleStart}
-                  disabled={!telloConnected}
-                  className={`w-24 h-12 md:w-48 md:h-18 rounded-xl transition-colors ${
-                    telloConnected
-                      ? 'bg-deep-teal text-lg md:text-3xl text-white hover:bg-red-700'
-                      : 'bg-deep-teal text-lg md:text-3xl text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  Start
-                </button>
+                <div className="flex gap-1 p-40 space-x-5">
                 <button
                   onClick={handleTakeoff}
                   disabled={!telloConnected || isFlying}
-                  className={`w-20 h-20 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
+                  className={`w-32 h-25 rounded-xl flex items-center justify-center gap-2 transition-colors ${
                     telloConnected && !isFlying
-                      ? 'bg-deep-teal text-xl md:text-3xl text-ivory hover:bg-deep-teal'
-                      : 'bg-deep-teal text-xl md:text-3xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-green-600 text-ivory hover:bg-green-700'
+                      : 'bg-deep-teal text-dark-cyan cursor-not-allowed'
                   }`}
                 >
-                  S
+                  <Plane className="w-12 h-12 mb-1" />
+                </button>
+                <button
+                  onClick={handleSpeed}
+                  disabled={!telloConnected || !isFlying}
+                  className={`w-25 h-25 rounded-full flex flex-col items-center justify-center transition-colors ${
+                    telloConnected && isFlying
+                      ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                      : 'bg-deep-teal text-dark-cyan cursor-not-allowed'
+                  }`}
+                >
+                  <Settings className="w-12 h-12 mb-1" />
                 </button>
                 <button
                   onClick={handleEmergency}
                   disabled={!telloConnected}
-                  className={`w-24 h-12 md:w-48 md:h-18 rounded-xl transition-colors ${
+                  className={`w-32 h-25 rounded-xl flex items-center justify-center gap-2 transition-colors ${
                     telloConnected
-                      ? 'bg-deep-teal text-lg md:text-3xl text-white hover:bg-red-700'
-                      : 'bg-deep-teal text-lg md:text-3xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-red-600 text-ivory hover:bg-red-700'
+                      : 'bg-deep-teal text-dark-cyan cursor-not-allowed'
                   }`}
                 >
-                  Emergency
+                  <AlertTriangle className="w-12 h-12" />
                 </button>
               </div>
             </div>
@@ -868,22 +932,24 @@ function Control({
         <div className="order-1 space-y-5">
           {/* Control Mode Buttons */}
           <div className="space-y-3">
-            {['Joystick Mode', 'Button Mode', 'Keyboard Mode', 'Controller Mode', 'Autonomous Mode'].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setControlMode(mode)}
-                disabled={telloConnected}
-                className={`w-full p-7 text-2xl font-bold rounded-xl text-center transition-colors ${
-                  controlMode === mode 
-                    ? 'bg-deep-teal text-gray-500' 
-                    : !telloConnected 
-                      ? 'bg-deep-teal text-ivory hover:bg-dark-cyan' 
-                      : 'bg-deep-teal text-ivory cursor-not-allowed'
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
+            {['Joystick Mode', 'Button Mode', 'Keyboard Mode', 'Controller Mode', 'Autonomous Mode'].map((mode) => {
+              const IconComponent = modeIcons[mode];
+              
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setControlMode(mode)}
+                  className={`w-full p-7 text-2xl font-bold rounded-xl transition-colors flex items-center ${
+                    controlMode === mode
+                      ? 'bg-deep-teal text-gray-500'
+                      : 'bg-deep-teal text-ivory hover:bg-dark-cyan'
+                  }`}
+                >
+                  <IconComponent className="w-8 h-8 mr-4" />
+                  <span className="flex-1 text-center">{mode}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Settings Panel */}

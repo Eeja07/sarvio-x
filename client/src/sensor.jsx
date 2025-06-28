@@ -2,11 +2,11 @@ import {
   Battery, 
   Bluetooth, 
   Monitor, 
-  Gamepad2, 
+  Eye,
+  Image, 
   Clock, 
   Wifi, 
   Code, 
-  Hash, 
   ArrowUp, 
   Gauge, 
   Thermometer, 
@@ -14,7 +14,6 @@ import {
   Move3D, 
   Zap, 
   Ruler,
-  Activity
 } from "lucide-react";
 
 function Sensor({ sensorData }) {
@@ -33,7 +32,7 @@ function Sensor({ sensorData }) {
         <div className="space-y-3 text-m">
           {/* Battery */}
           <div>
-            <div className="flex items-center justify-between mb-">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2 text-m">
                 <Battery className="w-5 h-5 text-ivory" />
                 <span className="text-ivory">Battery</span>
@@ -63,17 +62,24 @@ function Sensor({ sensorData }) {
               <Monitor className="w-5 h-5 text-ivory" />
               <span className="text-ivory">FPS</span>
             </div>
-            <span className="text-ivory">30</span>
           </div>
           
-          {/* Control */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-m">
-              <Gamepad2 className="w-5 h-5 text-ivory" />
-              <span className="text-ivory">Control</span>
+              <Eye className="w-5 h-5 text-ivory" />
+              <span className="text-ivory">Human Detection</span>
             </div>
-            <span className={`text-ivory ${sensorData.control === 'Manual' ? 'text-yellow-400' : 'text-green-400'}`}>
-              {sensorData.control}
+            <span className={`text-ivory ${''}`}>
+              {sensorData.humanDetection}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-m">
+              <Image className="w-5 h-5 text-ivory" />
+              <span className="text-ivory">Amount Screenshot</span>
+            </div>
+            <span className={`text-ivory ${''}`}>
+              {sensorData.amountScreenshoot}
             </span>
           </div>
           
@@ -107,18 +113,9 @@ function Sensor({ sensorData }) {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-m">
               <Code className="w-5 h-5 text-ivory" />
-              <span className="text-ivory">SDK Version</span>
+              <span className="text-ivory">SDK & SN </span>
             </div>
-            <span className="text-ivory">{sensorData.sdkVersion}</span>
-          </div>
-          
-          {/* Serial Number */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-m">
-              <Hash className="w-5 h-5 text-ivory" />
-              <span className="text-ivory">Serial Number</span>
-            </div>
-            <span className="text-ivory">{sensorData.serialNumber}</span>
+            <span className="text-ivory">{sensorData.sdkVersion}/{sensorData.serialNumber}</span>
           </div>
         </div>
       </div>
@@ -145,7 +142,7 @@ function Sensor({ sensorData }) {
               <Gauge className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Barometer</span>
             </div>
-            <span className="text-ivory">{sensorData.barometer}</span>
+            <span className="text-ivory">{sensorData.barometer}Hpa</span>
           </div>
           
           {/* Temperature */}

@@ -6,8 +6,8 @@ import Sensor from './sensor'
 function Dashboard() {
   // State untuk drone control
   const [controlMode, setControlMode] = useState('Joystick Mode')
-  const [speed, setSpeed] = useState(51)
-  const [rotation, setRotation] = useState(90)
+  const [speed, setSpeed] = useState(20)
+  const [rotation, setRotation] = useState(0)
   const [leftJoystickPosition, setLeftJoystickPosition] = useState({ x: 0, y: 0 })
   const [rightJoystickPosition, setRightJoystickPosition] = useState({ x: 0, y: 0 })
   
@@ -18,21 +18,24 @@ function Dashboard() {
   const [isFlying, setIsFlying] = useState(false)
   
   const [sensorData, setSensorData] = useState({
-    battery: 75,
-    bluetooth: 'Connected',
-    state: 'ON',
-    control: 'Manual',
-    flightTime: 5,
-    wifiSignal: 85,
-    sdkVersion: '2.0',
-    serialNumber: 'TELLO123',
-    Height: 150,
-    barometer: '1013.25 hPa',
-    temperature: 25,
+    battery: '',
+    bluetooth: '',
+    state: '',
+    control: '',
+    flightTime: '',
+    wifiSignal: '',
+    sdkVersion: '',
+    serialNumber: '',
+    Height: '',
+    barometer: '',
+    temperature: '',
     imuAttitude: { pitch: 0, roll: 0, yaw: 0 },
-    acceleration: { x: 0, y: 0, z: 9.8 },
+    acceleration: { x: 0, y: 0, z: 0 },
     speed: { x: 0, y: 0, z: 0 },
-    distanceTOF: 100.0
+    distanceTOF: '',
+    FPS: '',
+    humanDetection: '',
+    amountScreenshoot: ''
   })
 
   // Flight time tracking
@@ -252,30 +255,6 @@ function Dashboard() {
           </div>
         </div>
       </main>
-
-      {/* Footer
-      <footer className="bg-slate-800 border-t border-slate-700 p-4">
-        <div className="flex items-center justify-between text-sm text-slate-400">
-          <div className="flex items-center space-x-4">
-            <span>SARVIO-X v2.0</span>
-            <span>•</span>
-            <span>DJI Tello Compatible</span>
-            <span>•</span>
-            <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
-              {isConnected ? 'WebSocket Connected' : 'WebSocket Disconnected'}
-            </span>
-          </div>
-          <div className="flex items-center space-x-4">
-            <span>System Status: {isConnected ? 'Online' : 'Offline'}</span>
-            <span>•</span>
-            <span>ML Engine: YOLOv8 (Ready)</span>
-            <span>•</span>
-            <span className={telloConnected ? 'text-green-400' : 'text-slate-400'}>
-              {telloConnected ? 'Ready for Flight' : 'Drone Standby'}
-            </span>
-          </div>
-        </div>
-      </footer> */}
 
       <style jsx>{`
         .slider::-webkit-slider-thumb {

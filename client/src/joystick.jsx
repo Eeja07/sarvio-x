@@ -29,7 +29,7 @@ function VirtualJoystick({ joystickPosition, setJoystickPosition, telloConnected
   return (
     <div className="relative w-48 h-48 bg-deep-teal rounded-full border-2 border-slate-600">
       <div
-        className={`absolute inset-2 bg-dark-cyan rounded-full transition-all duration-200 ${
+        className={`absolute inset-3 bg-dark-cyan rounded-full transition-all duration-200 ${
           telloConnected 
             ? 'cursor-pointer opacity-100' 
             : 'cursor-not-allowed opacity-50 pointer-events-none'
