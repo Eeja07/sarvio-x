@@ -27,6 +27,48 @@ function Control({
   const [isStreaming, setIsStreaming] = useState(false)
   const [mlDetection, setMlDetection] = useState(false)
   const [autoCapture, setAutoCapture] = useState(false)
+  const leftColumnTextsKeyboard = [
+  "TAKEOFF = T",
+  "LANDING = L",
+  "EMERGENCY = E",
+  "ON/OFF DETECTION = /",
+  "FLIP FORWARD = I ",
+  "FLIP BACK = J",
+  "FLIP LEFT = K",
+  "FLIP RIGHT = L"
+  ];
+
+  const rightColumnTextsKeyboard = [
+    "MOVE FORWARD = W",
+    "MOVE BACKWARD = S",
+    "MOVE LEFT = A",
+    "MOVE RIGHT = D",
+    "MOVE UP = ARROW UP",
+    "MOVE DOWN = ARROW DOWN",
+    "ROTATE CW = ARROW LEFT",
+    "ROTATE CCW = ARROW RIGHT"
+  ];
+  const leftColumnTextsController = [
+  "TAKEOFF = A",
+  "LANDING = B",
+  "EMERGENCY = E",
+  "ON/OFF DETECTION = L1",
+  "FLIP FORWARD = I ",
+  "FLIP BACK = J",
+  "FLIP LEFT = K",
+  "FLIP RIGHT = L"
+  ];
+
+  const rightColumnTextsController = [
+    "MOVE FORWARD = W",
+    "MOVE BACKWARD = S",
+    "MOVE LEFT = A",
+    "MOVE RIGHT = D",
+    "MOVE UP = ARROW UP",
+    "MOVE DOWN = ARROW DOWN",
+    "ROTATE CW = ARROW LEFT",
+    "ROTATE CCW = ARROW RIGHT"
+  ];
   // Movement control refs
   const keysPressed = useRef(new Set())
   const lastJoystickPosition = useRef({ x: 0, y: 0 })
@@ -211,6 +253,14 @@ function Control({
       }
     }
   }
+  const handleStart = () => {
+    if (socket && telloConnected) {
+      socket.emit('start_autonomous_mode')
+      if (!isFlying) {
+        socket.emit('takeoff')     
+      }
+    }
+  }
 
   const handleFlip = (direction) => {
     if (socket && isFlying) {
@@ -309,7 +359,7 @@ function Control({
               />
             ) : (
               <div className="text-center text-ivory">
-                <div className="w-20 h-20 mx-auto mb-4 opacity-30">
+                <div className="w-20 h-20 mx-auto mb-2 opacity-30">
                   <svg viewBox="0 0 24 24" fill="currentColor">
                     <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" />
                   </svg>
@@ -317,7 +367,7 @@ function Control({
                 <p className="text-xl font-medium">
                   {isConnected ? 'Waiting for Stream' : 'NO CONNECTION'}
                 </p>
-                <p className="text-xl">
+                <p className="text-xl p-2">
                   {isConnected ? 'Video stream starting...' : 'CONNECT DRONE TO START STREAMING'}
                 </p>
               </div>
@@ -343,10 +393,10 @@ function Control({
                   <button
                     onClick={() => handleFlip('left')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     L
@@ -354,10 +404,10 @@ function Control({
                   <button
                     onClick={() => handleFlip('right')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     R
@@ -369,8 +419,8 @@ function Control({
                   disabled={!telloConnected}
                   className={`w-32 h-12 md:w-55 md:h-18 rounded-xl transition-colors ${
                     telloConnected
-                      ? 'bg-dark-cyan text-lg md:text-2xl text-white hover:bg-red-700'
-                      : 'bg-dark-cyan text-lg md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-lg md:text-2xl text-white hover:bg-red-700'
+                      : 'bg-deep-teal text-lg md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   Emergency
@@ -382,8 +432,8 @@ function Control({
                     disabled={!telloConnected || !isFlying}
                     className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     U
@@ -393,8 +443,8 @@ function Control({
                     disabled={!telloConnected || !isFlying}
                     className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     D
@@ -409,8 +459,8 @@ function Control({
                   disabled={!telloConnected || isFlying}
                   className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
                     telloConnected && !isFlying
-                      ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   T
@@ -420,8 +470,8 @@ function Control({
                   disabled={!telloConnected || !isFlying}
                   className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
                     telloConnected && isFlying
-                      ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   S
@@ -431,8 +481,8 @@ function Control({
                   disabled={!telloConnected || !isFlying}
                   className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
                     telloConnected && isFlying
-                      ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   L
@@ -466,8 +516,8 @@ function Control({
                     disabled={!telloConnected || !isFlying}
                     className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     L
@@ -477,8 +527,8 @@ function Control({
                     disabled={!telloConnected || !isFlying}
                     className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     R
@@ -490,8 +540,8 @@ function Control({
                   disabled={!telloConnected}
                   className={`w-32 h-12 md:w-55 md:h-18 rounded-xl transition-colors ${
                     telloConnected
-                      ? 'bg-dark-cyan text-lg md:text-2xl text-white hover:bg-red-700'
-                      : 'bg-dark-cyan text-lg md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-lg md:text-2xl text-white hover:bg-red-700'
+                      : 'bg-deep-teal text-lg md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   Emergency
@@ -503,8 +553,8 @@ function Control({
                     disabled={!telloConnected || !isFlying}
                     className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     U
@@ -514,8 +564,8 @@ function Control({
                     disabled={!telloConnected || !isFlying}
                     className={`w-12 h-12 md:w-18 md:h-18 rounded-xl flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     D
@@ -530,8 +580,8 @@ function Control({
                   disabled={!telloConnected || isFlying}
                   className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
                     telloConnected && !isFlying
-                      ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   T
@@ -541,8 +591,8 @@ function Control({
                   disabled={!telloConnected || !isFlying}
                   className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
                     telloConnected && isFlying
-                      ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   S
@@ -552,8 +602,8 @@ function Control({
                   disabled={!telloConnected || !isFlying}
                   className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
                     telloConnected && isFlying
-                      ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                      : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-xl md:text-2xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-2xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   L
@@ -569,13 +619,13 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('forward')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ▲
+                    ↑
                   </button>
                   {/* Empty top-right */}
                   <div></div>
@@ -584,27 +634,27 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('left')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ◀
+                    ⟵
                   </button>
                   {/* Center (empty or logo) */}
-                  <div className="w-12 h-12 md:w-14 md:h-14"></div>
+                  <div className="w-20 h-20"></div>
                   {/* Right */}
                   <button
                     onClick={() => handleDirectionalMove('right')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ▶
+                    ⟶ 
                   </button>
                   
                   {/* Empty bottom-left */}
@@ -613,13 +663,13 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('backward')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ▼
+                    ↓
                   </button>
                   {/* Empty bottom-right */}
                   <div></div>
@@ -633,13 +683,13 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('up')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl text-2xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ▲
+                    ⇈
                   </button>
                   {/* Empty top-right */}
                   <div></div>
@@ -648,27 +698,27 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('yaw_left')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-sm md:text-lg text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-sm md:text-lg text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ◀◀
+                    ⇇
                   </button>
                   {/* Center (empty) */}
-                  <div className="w-12 h-12 md:w-14 md:h-14"></div>
+                  <div className="w-20 h-20"></div>
                   {/* Yaw Right */}
                   <button
                     onClick={() => handleDirectionalMove('yaw_right')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-sm md:text-lg text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-sm md:text-lg text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ▶▶
+                    ⇉
                   </button>
                   
                   {/* Empty bottom-left */}
@@ -677,13 +727,13 @@ function Control({
                   <button
                     onClick={() => handleDirectionalMove('down')}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-20 h-20 text-4xl rounded-full flex items-center justify-center transition-colors ${
                       telloConnected && isFlying
-                        ? 'bg-dark-cyan text-xl md:text-2xl text-ivory hover:bg-deep-teal'
-                        : 'bg-dark-cyan text-xl md:text-2xl text-gray-400 cursor-not-allowed'
+                        ? 'bg-deep-teal text-ivory hover:bg-deep-teal'
+                        : 'bg-deep-teal text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    ▼
+                    ⇊
                   </button>
                   {/* Empty bottom-right */}
                   <div></div>
@@ -692,34 +742,121 @@ function Control({
             </div>
           )}
           {controlMode === 'Keyboard Mode' && (
-            <div className="space-y-4"></div>
+            <div className="flex flex-col lg:flex-row w-full bg-deep-teal rounded-lg p-9 mb-2 gap-6">
+              {/* Left Column */}
+              <div className="flex-1 w-full space-y-2">
+                <h3 className="text-xl font-semibold text-ivory mb-4 border-b border-ivory/30 pb-2">
+                  Actions
+                </h3>
+                {leftColumnTextsKeyboard.map((text, idx) => (
+                  <div key={`left-${idx}`} className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-ivory text-deep-teal rounded flex items-center justify-center font-bold text-sm">
+                      {text.split(' = ')[1]}
+                    </div>
+                    <span className="text-lg text-ivory">
+                      {text.split(' = ')[0] || text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Right Column */}
+              <div className="flex-1 w-full space-y-2">
+                <h3 className="text-xl font-semibold text-ivory mb-4 border-b border-ivory/30 pb-2">
+                  Movement
+                </h3>
+                {rightColumnTextsKeyboard.map((text, idx) => (
+                  <div key={`right-${idx}`} className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-ivory text-deep-teal rounded flex items-center justify-center font-bold text-sm">
+                      {text.includes('ARROW UP') ? '↑' : 
+                        text.includes('ARROW DOWN') ? '↓' : 
+                        text.includes('ARROW LEFT') ? '←' :
+                        text.includes('ARROW RIGHT') ? '→' :
+                        text.split(' = ')[1]}
+                    </div>
+                    <span className="text-lg text-ivory">
+                      {text.split(' = ')[0]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
           {controlMode === 'Controller Mode' && (
-                        <div className="space-y-4"></div>
+           <div className="flex flex-col lg:flex-row w-full bg-deep-teal rounded-lg p-9 mb-2 gap-6">
+              {/* Left Column */}
+              <div className="flex-1 w-full space-y-2">
+                <h3 className="text-xl font-semibold text-ivory mb-4 border-b border-ivory/30 pb-2">
+                  Actions
+                </h3>
+                {leftColumnTextsController.map((text, idx) => (
+                  <div key={`left-${idx}`} className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-ivory text-deep-teal rounded flex items-center justify-center font-bold text-sm">
+                      {text.split(' = ')[1]}
+                    </div>
+                    <span className="text-lg text-ivory">
+                      {text.split(' = ')[0] || text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Right Column */}
+              <div className="flex-1 w-full space-y-2">
+                <h3 className="text-xl font-semibold text-ivory mb-4 border-b border-ivory/30 pb-2">
+                  Movement
+                </h3>
+                {rightColumnTextsController.map((text, idx) => (
+                  <div key={`right-${idx}`} className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-ivory text-deep-teal rounded flex items-center justify-center font-bold text-sm">
+                      {text.includes('ARROW UP') ? '↑' : 
+                        text.includes('ARROW DOWN') ? '↓' : 
+                        text.includes('ARROW LEFT') ? '←' :
+                        text.includes('ARROW RIGHT') ? '→' :
+                        text.split(' = ')[1]}
+                    </div>
+                    <span className="text-lg text-ivory">
+                      {text.split(' = ')[0]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
           {controlMode === 'Autonomous Mode' && (
             <div className="space-y-4">
               {/* Flip Controls and Emergency */}
               <div className="flex flex-wrap justify-center items-center gap-2">
-                <div className="flex gap-1">
+                <div className="flex gap-1 p-40 space-x-10">
                 <button
-                  onClick={handleEmergency}
+                  onClick={handleStart}
                   disabled={!telloConnected}
-                  className={`w-32 h-12 md:w-55 md:h-18 rounded-xl transition-colors ${
+                  className={`w-24 h-12 md:w-48 md:h-18 rounded-xl transition-colors ${
                     telloConnected
-                      ? 'bg-dark-cyan text-lg md:text-2xl text-white hover:bg-red-700'
-                      : 'bg-dark-cyan text-lg md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-lg md:text-3xl text-white hover:bg-red-700'
+                      : 'bg-deep-teal text-lg md:text-3xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  Emergency
+                  Start
+                </button>
+                <button
+                  onClick={handleTakeoff}
+                  disabled={!telloConnected || isFlying}
+                  className={`w-20 h-20 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors ${
+                    telloConnected && !isFlying
+                      ? 'bg-deep-teal text-xl md:text-3xl text-ivory hover:bg-deep-teal'
+                      : 'bg-deep-teal text-xl md:text-3xl text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  S
                 </button>
                 <button
                   onClick={handleEmergency}
                   disabled={!telloConnected}
-                  className={`w-32 h-12 md:w-55 md:h-18 rounded-xl transition-colors ${
+                  className={`w-24 h-12 md:w-48 md:h-18 rounded-xl transition-colors ${
                     telloConnected
-                      ? 'bg-dark-cyan text-lg md:text-2xl text-white hover:bg-red-700'
-                      : 'bg-dark-cyan text-lg md:text-2xl text-gray-400 cursor-not-allowed'
+                      ? 'bg-deep-teal text-lg md:text-3xl text-white hover:bg-red-700'
+                      : 'bg-deep-teal text-lg md:text-3xl text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   Emergency
@@ -728,21 +865,20 @@ function Control({
             </div>
             </div>
           )}</div>
-        {/* Settings Panel */}
-        <div className="order-1 space-y-8">
+        <div className="order-1 space-y-5">
           {/* Control Mode Buttons */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             {['Joystick Mode', 'Button Mode', 'Keyboard Mode', 'Controller Mode', 'Autonomous Mode'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => setControlMode(mode)}
-                disabled={!telloConnected}
-                className={`w-full p-7 text-2xl rounded-xl text-center transition-colors ${
+                disabled={telloConnected}
+                className={`w-full p-7 text-2xl font-bold rounded-xl text-center transition-colors ${
                   controlMode === mode 
-                    ? 'bg-dark-cyan text-gray-500 font-medium' 
+                    ? 'bg-deep-teal text-gray-500' 
                     : !telloConnected 
-                      ? 'bg-dark-cyan text-ivory hover:bg-deep-teal' 
-                      : 'bg-dark-cyan text-ivory cursor-not-allowed'
+                      ? 'bg-deep-teal text-ivory hover:bg-dark-cyan' 
+                      : 'bg-deep-teal text-ivory cursor-not-allowed'
                 }`}
               >
                 {mode}
@@ -832,6 +968,7 @@ function Control({
                 <span>2x</span>
               </div>
               <input
+                disabled={!telloConnected}
                 type="range"
                 min="0"
                 max="2"
@@ -847,10 +984,11 @@ function Control({
               <h3 className="text-gray-400 font-medium text-2xl mb-3">Brightness</h3>
               <div className="flex items-center gap-2 text-gray-400 text-2xl mb-2">
                 <span>-100</span>
-                <span className="flex-1 text-center">{brightness}</span>
+                <span className="flex-1 text-center">{brightness}0</span>
                 <span>100</span>
               </div>
               <input
+                disabled={!telloConnected}
                 type="range"
                 min="-100"
                 max="100"

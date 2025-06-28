@@ -197,11 +197,10 @@ function Dashboard() {
               <h1 className="text-deep-teal text-4xl font-bold">SARVIO-X</h1>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
-            <div>
-              <h1 className="text-deep-teal text-4xl font-bold mb-3 flex items-center">
-              <span className="w-5 h-5 bg-deep-teal rounded-full mr-2"></span>Connected</h1>
-            </div>
+          <div className="flex justify-between">
+            <span className={`text-4xl font-bold ${sensorData.state === 'ON' ? 'text-green-600' : 'text-red-400'}`}>
+              {sensorData.state}
+            </span>
           </div>
           
           
@@ -213,8 +212,8 @@ function Dashboard() {
                   disabled={!isConnected}
                   className={`rounded-2xl px-15 py-5 text-4xl font-medium transition-colors ${
                     !isConnected
-                      ? 'bg-dark-cyan text-ivory cursor-not-allowed'
-                      : 'bg-dark-cyan hover:bg-deep-teal text-white'
+                      ? 'bg-deep-teal text-ivory cursor-not-allowed'
+                      : 'bg-deep-teal hover:bg-dark-cyan text-white'
                   }`}
                 >
                   Connect
@@ -228,10 +227,16 @@ function Dashboard() {
                 </button>
               )}
             </div>
-            <button className="bg-dark-cyan rounded-2xl hover:bg-deep-teal px-15 py-5 text-4xl rounded transition-colors">
-              Gallery
-            </button>
-          
+                <button 
+                  disabled={!isConnected}
+                  className={`rounded-2xl px-15 py-5 text-4xl font-medium transition-colors ${
+                    !isConnected
+                      ? 'bg-deep-teal text-ivory cursor-not-allowed'
+                      : 'bg-deep-teal hover:bg-dark-cyan text-white'
+                  }`}
+                >
+                  Gallery
+                </button>
           </div>
         </div>
       </header>
