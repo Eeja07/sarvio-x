@@ -175,47 +175,10 @@ class FrontEnd(object):
             return render_template_string("""
             <!DOCTYPE html>
             <html>
-                <head>
-                    <title>Tello Live Stream - SARVIO-X Backend</title>
-                    <meta charset="UTF-8">
-                    <style>
-                        body { font-family: Arial, sans-serif; margin: 40px; background: #1a1a1a; color: white; }
-                        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
-                        .connected { background: #065f46; }
-                        .disconnected { background: #7f1d1d; }
-                        img { border: 2px solid #06b6d4; border-radius: 8px; }
-                    </style>
-                </head>
                 <body>
                     <h1>🚁 SARVIO-X Backend Server</h1>
-                    <h2>Tello Live Video Feed with ML Detection</h2>
-                    
-                    <div class="status connected">
-                        ✅ Flask-SocketIO Server: Active on port 5000
-                    </div>
-                    
-                    <div class="status connected">
-                        🎥 Video Stream: <a href="{{ url_for('video_feed') }}" target="_blank">Direct Feed</a>
-                    </div>
-                    
-                    <div class="status connected">
-                        🌐 React App: <a href="http://localhost:5173" target="_blank">Web Interface</a>
-                    </div>
-                    
                     <h3>Live Video Stream:</h3>
                     <img src="{{ url_for('video_feed') }}" width="640" height="480" alt="Tello Live Stream">
-                    
-                    <h3>Features:</h3>
-                    <ul>
-                        <li>✅ YOLOv8 Human Detection</li>
-                        <li>✅ MediaPipe Body/Hand Tracking</li>
-                        <li>✅ Auto Screenshot (3s countdown)</li>
-                        <li>✅ Manual Screenshot via Web/Pygame</li>
-                        <li>✅ Real-time Socket.IO streaming</li>
-                        <li>✅ Dual Interface (Pygame + Web)</li>
-                    </ul>
-                    
-                    <p><strong>Note:</strong> Use React interface at <a href="http://localhost:5173">localhost:5173</a> for full control</p>
                 </body>
             </html>
             """)
@@ -360,7 +323,7 @@ class FrontEnd(object):
         @self.socketio.on('enable_ml_detection')
         def handle_enable_ml_detection(data):
             """Enable/disable ML detection"""
-            self.ml_detection_enabled = data.get('enabled', False)
+            self.ml_detection_enabfled = data.get('enabled', False)
             print(f"🤖 ML Detection: {'Enabled' if self.ml_detection_enabled else 'Disabled'}")
             
             self.socketio.emit('ml_detection_status', {
@@ -528,18 +491,28 @@ class FrontEnd(object):
                 if self.last_frame is None:
                     time.sleep(0.1)
                     continue
+                
                 frame_to_send = self.last_frame.copy()
-            
-            # Encode frame to JPEG
-            ret, buffer = cv2.imencode('.jpg', frame_to_send)
-            if not ret:
-                continue
-            
-            frame_bytes = buffer.tobytes()
-            # Yield frame in multipart format
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            time.sleep(1 / FPS)
+                
+                # SOLUSI 1: Convert RGB (pygame) ke BGR (OpenCV)
+                # Pygame menggunakan RGB, OpenCV menggunakan BGR
+                frame_bgr = cv2.cvtColor(frame_to_send, cv2.COLOR_RGB2BGR)
+                
+                # SOLUSI 2: Encode dengan kualitas tinggi untuk mengurangi color distortion
+                # Parameter kedua adalah kualitas JPEG (0-100, default ~95)
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 60]
+                ret, buffer = cv2.imencode('.jpg', frame_bgr, encode_params)
+                
+                if not ret:
+                    continue
+                    
+                frame_bytes = buffer.tobytes()
+                
+                # Yield frame dalam format multipart
+                yield (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    
+                time.sleep(1 / FPS)
 
     def _send_frame_to_react(self, frame):
         """Send frame to React clients via Socket.IO"""
@@ -547,9 +520,10 @@ class FrontEnd(object):
             try:
                 # Resize frame for bandwidth efficiency
                 frame_resized = cv2.resize(frame, (640, 480))
-                
+                frame_bgr2 = cv2.cvtColor(frame_resized, cv2.COLOR_RGB2BGR)
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 60]
                 # Encode to JPEG with medium quality
-                ret, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                ret, buffer = cv2.imencode('.jpg', frame_bgr2, encode_params)
                 if ret:
                     # Convert to base64
                     frame_base64 = base64.b64encode(buffer).decode('utf-8')
