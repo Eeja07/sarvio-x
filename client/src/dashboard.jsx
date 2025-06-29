@@ -20,6 +20,7 @@ function Dashboard() {
   const [joystickEnabled, setJoystickEnabled] = useState(true) // New state
   const [brightness, setBrightness] = useState(0)
   const [showSpeedModal, setShowSpeedModal] = useState(false) // New state
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false)
   
   // Socket connection state
   const [socket, setSocket] = useState(null)
@@ -55,7 +56,44 @@ function Dashboard() {
   // Flight time tracking
   const [flightStartTime, setFlightStartTime] = useState(null)
   const [connectionAttempts, setConnectionAttempts] = useState(0)
+// Tambahkan handler untuk telemetry updates
+  useEffect(() => {
+    if (!socket) return
 
+    const handleTelemetryUpdate = (data) => {
+      setSensorData(prev => ({
+        ...prev,
+        battery: data.battery || prev.battery,
+        Height: data.height || prev.Height,
+        temperature: data.temperature || prev.temperature,
+        barometer: data.barometer || prev.barometer,
+        imuAttitude: {
+          pitch: data.pitch || prev.imuAttitude.pitch,
+          roll: data.roll || prev.imuAttitude.roll,
+          yaw: data.yaw || prev.imuAttitude.yaw
+        },
+        speed_sensor: {
+          x: data.speed_x || prev.speed_sensor.x,
+          y: data.speed_y || prev.speed_sensor.y,
+          z: data.speed_z || prev.speed_sensor.z
+        },
+        acceleration: {
+          x: data.accel_x || prev.acceleration.x,
+          y: data.accel_y || prev.acceleration.y,
+          z: data.accel_z || prev.acceleration.z
+        },
+        distanceTOF: data.tof || prev.distanceTOF,
+        FPS: data.fps || prev.FPS,
+        amountScreenshoot: data.screenshot_count || prev.amountScreenshoot
+      }))
+    }
+
+    socket.on('telemetry_update', handleTelemetryUpdate)
+
+    return () => {
+      socket.off('telemetry_update', handleTelemetryUpdate)
+    }
+  }, [socket])
   useEffect(() => {
     const connectSocket = () => {
       console.log('🔄 Attempting to connect to backend server...')
@@ -96,20 +134,20 @@ function Dashboard() {
         }))
       })
 
-      newSocket.on('disconnect', (reason) => {
-        console.log('❌ Dashboard: Disconnected from backend server')
-        setIsConnected(false)
-        setTelloConnected(false)
-        setIsFlying(false)
+      // newSocket.on('disconnect', (reason) => {
+      //   console.log('❌ Dashboard: Disconnected from backend server')
+      //   setIsConnected(false)
+      //   setTelloConnected(false)
+      //   setIsFlying(false)
         
-        setSensorData(prev => ({
-          ...prev,
-          bluetooth: 'Disconnected',
-          state: 'OFF',
-          battery: 0,
-          flightTime: '00:00'
-        }))
-      })
+      //   setSensorData(prev => ({
+      //     ...prev,
+      //     bluetooth: 'Disconnected',
+      //     state: 'OFF',
+      //     battery: 0,
+      //     flightTime: '00:00'
+      //   }))
+      // })
 
       // Tello status handlers
       newSocket.on('tello_status', (data) => {
@@ -337,7 +375,9 @@ function Dashboard() {
     showSpeedModal,
     setShowSpeedModal,
     onSpeedButtonClick: handleSpeedButtonClick,
-    onSpeedChange: handleSpeedChange
+    onSpeedChange: handleSpeedChange,
+    keyboardEnabled,
+    setKeyboardEnabled
   }
   
   const sensorProps = {
