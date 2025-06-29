@@ -17,7 +17,58 @@ import {
   Video,
   X
 } from "lucide-react";
+const CONTROLLER_CONFIG = {
+  // Xbox Controller / Standard Gamepad mapping
+  BUTTONS: {
+    A: 0,           // Takeoff
+    B: 1,           // Landing  
+    X: 2,           // Screenshot
+    Y: 3,           // Toggle Recording
+    LB: 4,          // Auto Screenshot Toggle
+    RB: 5,          // Autonomous Mode Toggle
+    LT: 6,          // Detection Toggle
+    RT: 7,          // Keyboard Mode Toggle
+    SELECT: 8,      // Joystick Mode Toggle
+    START: 9,       // Emergency
+    L3: 10,         // Left stick press
+    R3: 11,         // Right stick press
+    DPAD_UP: 12,    // Flip Forward
+    DPAD_DOWN: 13,  // Flip Backward
+    DPAD_LEFT: 14,  // Flip Left
+    DPAD_RIGHT: 15  // Flip Right
+  },
+  AXES: {
+    LEFT_X: 0,      // Left/Right movement
+    LEFT_Y: 1,      // Forward/Backward movement
+    RIGHT_X: 2,     // Yaw rotation
+    RIGHT_Y: 3      // Up/Down movement
+  },
+  DEADZONE: 0.1     // Minimum threshold untuk analog stick
+};
 
+
+// IMPROVED BUTTON NAME MAPPING
+const getButtonName = (buttonIndex) => {
+  const buttonMap = {
+    0: 'A',
+    1: 'B', 
+    2: 'X',
+    3: 'Y',
+    4: 'LB',
+    5: 'RB',
+    6: 'LT',
+    7: 'RT',
+    8: 'SELECT',
+    9: 'START',
+    10: 'L3',
+    11: 'R3',
+    12: 'DPAD_UP',
+    13: 'DPAD_DOWN',
+    14: 'DPAD_LEFT',
+    15: 'DPAD_RIGHT'
+  };
+  return buttonMap[buttonIndex] || `BUTTON_${buttonIndex}`;
+};
 // Mapping mode ke ikon yang sesuai
 const modeIcons = {
   'Joystick Mode': Gamepad2,
@@ -33,11 +84,6 @@ function Control({
   controlMode, 
   setControlMode,
   speed,
-  // setSpeed,
-  // rotation,
-  // setRotation,
-  zoom,
-  // setZoom,
   humanDetection,
   setHumanDetection,
   autoScreenshot,
@@ -68,13 +114,26 @@ function Control({
   const [isStreaming, setIsStreaming] = useState(false)
   const [lastScreenshotTime, setLastScreenshotTime] = useState(0)
   const [tempSpeed, setTempSpeed] = useState(speed)
-  
+    
+    // Controller states
+  const [connectedController, setConnectedController] = useState(null);
+  const [controllerIndex, setControllerIndex] = useState(-1);
+  const [lastControllerButtonStates, setLastControllerButtonStates] = useState({});
+  const [isControllerPolling, setIsControllerPolling] = useState(false);
   // NEW: Hold button functionality states
   const [pressedButton, setPressedButton] = useState(null)
-  const intervalRef = useRef(null)
   
   // Movement control refs
+  // Refs
+  const intervalRef = useRef(null)
   const keysPressed = useRef(new Set())
+  const controllerPollingRef = useRef(null);
+  const controllerInputRef = useRef({
+    leftX: 0,
+    leftY: 0,
+    rightX: 0,
+    rightY: 0
+  });
   
   // Constants
   const leftColumnTextsKeyboard = [
@@ -240,6 +299,374 @@ function Control({
       console.log('🎥 Recording feature requires Tello connection')
     }
   }, [socket, isConnected, telloConnected, isRecording, setIsRecording])
+
+  // CONTROLLER FUNCTIONS
+
+  // PERBAIKAN 2: Stabilkan stopControllerPolling
+  const stopControllerPolling = useCallback(() => {
+    console.log('🎮 Stopping controller polling...');
+    if (controllerPollingRef.current) {
+      cancelAnimationFrame(controllerPollingRef.current);
+      controllerPollingRef.current = null;
+    }
+    setIsControllerPolling(false);
+  }, []); // NO dependencies
+
+  // IMPROVED CONTROLLER BUTTON HANDLER
+  const handleControllerButton = useCallback((buttonName, buttonIndex) => {
+    console.log(`🎮 Controller button pressed: ${buttonName} (index: ${buttonIndex})`);
+    console.log(`🔍 Current states:`, {
+      isFlying,
+      telloConnected,
+      isConnected,
+      socket: !!socket,
+      speed,
+      autoScreenshot,
+      humanDetection
+    });
+
+    // Add connection checks with detailed logging
+    if (!socket) {
+      console.warn('❌ No socket connection');
+      return;
+    }
+
+    if (!isConnected) {
+      console.warn('❌ Not connected to backend');
+      return;
+    }
+
+    if (!telloConnected) {
+      console.warn('❌ Tello not connected');
+      // Only allow some commands when Tello is not connected
+      if (!['LT', 'RT', 'SELECT', 'LB'].includes(buttonName)) {
+        return;
+      }
+    }
+
+    try {
+      switch (buttonName) {
+        case 'A':
+          console.log('🎮 A Button - Attempting takeoff...');
+          if (!isFlying && telloConnected) {
+            console.log('✅ Executing takeoff command');
+            handleTakeoff();
+          } else {
+            console.warn(`⚠️ Takeoff blocked - isFlying: ${isFlying}, telloConnected: ${telloConnected}`);
+          }
+          break;
+
+        case 'B':
+          console.log('🎮 B Button - Attempting landing...');
+          if (isFlying && telloConnected) {
+            console.log('✅ Executing landing command');
+            handleLand();
+          } else {
+            console.warn(`⚠️ Landing blocked - isFlying: ${isFlying}, telloConnected: ${telloConnected}`);
+          }
+          break;
+
+        case 'X':
+          console.log('🎮 X Button - Attempting screenshot...');
+          console.log('✅ Executing screenshot command');
+          handleCapture();
+          break;
+
+        case 'Y':
+          console.log('🎮 Y Button - Attempting record toggle...');
+          console.log('✅ Executing record command');
+          handleRecord();
+          break;
+
+        case 'LB':
+          console.log('🎮 LB Button - Toggling auto screenshot...');
+          setAutoScreenshot(prev => {
+            const newValue = !prev;
+            console.log(`📸 Auto Screenshot: ${newValue ? 'ON' : 'OFF'}`);
+            return newValue;
+          });
+          break;
+
+        case 'LT':
+          console.log('🎮 LT Button - Toggling human detection...');
+          setHumanDetection(prev => {
+            const newValue = !prev;
+            console.log(`👤 Human Detection: ${newValue ? 'ON' : 'OFF'}`);
+            return newValue;
+          });
+          break;
+
+        case 'RT':
+          console.log('🎮 RT Button - Toggling keyboard mode...');
+          setKeyboardEnabled(prev => {
+            const newMode = !prev;
+            console.log(`🎮 Keyboard mode switched via controller: ${newMode ? 'Mode 2' : 'Mode 1'}`);
+            return newMode;
+          });
+          break;
+
+        case 'SELECT':
+          console.log('🎮 SELECT Button - Toggling joystick...');
+          setJoystickEnabled(prev => {
+            const newValue = !prev;
+            console.log(`🕹️ Joystick: ${newValue ? 'ON' : 'OFF'}`);
+            return newValue;
+          });
+          break;
+
+        case 'START':
+          console.log('🎮 START Button - Emergency stop...');
+          console.log('✅ Executing emergency command');
+          handleEmergency();
+          break;
+
+        case 'DPAD_UP':
+          console.log('🎮 DPAD_UP - Attempting flip forward...');
+          if (isFlying && telloConnected) {
+            console.log('✅ Executing flip forward');
+            handleFlip('up');
+          } else {
+            console.warn(`⚠️ Flip blocked - isFlying: ${isFlying}, telloConnected: ${telloConnected}`);
+          }
+          break;
+
+        case 'DPAD_DOWN':
+          console.log('🎮 DPAD_DOWN - Attempting flip backward...');
+          if (isFlying && telloConnected) {
+            console.log('✅ Executing flip backward');
+            handleFlip('down');
+          } else {
+            console.warn(`⚠️ Flip blocked - isFlying: ${isFlying}, telloConnected: ${telloConnected}`);
+          }
+          break;
+
+        case 'DPAD_LEFT':
+          console.log('🎮 DPAD_LEFT - Attempting flip left...');
+          if (isFlying && telloConnected) {
+            console.log('✅ Executing flip left');
+            handleFlip('left');
+          } else {
+            console.warn(`⚠️ Flip blocked - isFlying: ${isFlying}, telloConnected: ${telloConnected}`);
+          }
+          break;
+
+        case 'DPAD_RIGHT':
+          console.log('🎮 DPAD_RIGHT - Attempting flip right...');
+          if (isFlying && telloConnected) {
+            console.log('✅ Executing flip right');
+            handleFlip('right');
+          } else {
+            console.warn(`⚠️ Flip blocked - isFlying: ${isFlying}, telloConnected: ${telloConnected}`);
+          }
+          break;
+
+        case 'L3':
+          console.log('🎮 L3 - Speed up...');
+          const newSpeedUp = Math.min(speed + 10, 100);
+          onSpeedChange(newSpeedUp);
+          console.log(`⚡ Speed increased to: ${newSpeedUp}`);
+          break;
+
+        case 'R3':
+          console.log('🎮 R3 - Speed down...');
+          const newSpeedDown = Math.max(speed - 10, 10);
+          onSpeedChange(newSpeedDown);
+          console.log(`⚡ Speed decreased to: ${newSpeedDown}`);
+          break;
+
+        default:
+          console.warn(`🎮 Unhandled controller button: ${buttonName} (index: ${buttonIndex})`);
+      }
+    } catch (error) {
+      console.error(`❌ Error handling controller button ${buttonName}:`, error);
+    }
+  }, [
+    isFlying, 
+    speed,
+    autoScreenshot,
+    humanDetection,
+    joystickEnabled,
+    telloConnected,
+    isConnected,
+    socket,
+    handleTakeoff,
+    handleLand,
+    handleCapture,
+    handleRecord,
+    handleEmergency,
+    handleFlip,
+    setAutoScreenshot,
+    setHumanDetection,
+    setKeyboardEnabled,
+    setJoystickEnabled,
+    onSpeedChange
+  ]);
+
+  // IMPROVED CONTROLLER INPUT PROCESSOR
+  const processControllerInput = useCallback((gamepad) => {
+    try {
+      // ENHANCED BUTTON PROCESSING with detailed logging
+      const currentButtons = {};
+      
+      // Get all button states
+      gamepad.buttons.forEach((button, index) => {
+        currentButtons[index] = button.pressed;
+      });
+
+      // Check for button press events (button down, not held)
+      for (let buttonIndex = 0; buttonIndex < gamepad.buttons.length; buttonIndex++) {
+        const isPressed = currentButtons[buttonIndex];
+        const wasPressed = lastControllerButtonStates[buttonIndex];
+
+        // Detect new button press (wasn't pressed before, now is pressed)
+        if (isPressed && !wasPressed) {
+          const buttonName = getButtonName(buttonIndex);
+          console.log(`🔘 NEW BUTTON PRESS DETECTED: ${buttonName} (index: ${buttonIndex})`);
+          
+          // Call button handler
+          handleControllerButton(buttonName, buttonIndex);
+        }
+      }
+
+      // Update button states for next frame
+      setLastControllerButtonStates(currentButtons);
+
+      // ANALOG STICK PROCESSING
+      const leftX = gamepad.axes[0] || 0;
+      const leftY = gamepad.axes[1] || 0;
+      const rightX = gamepad.axes[2] || 0;
+      const rightY = gamepad.axes[3] || 0;
+
+      const applyDeadzone = (value) => {
+        return Math.abs(value) > CONTROLLER_CONFIG.DEADZONE ? value : 0;
+      };
+
+      const processedLeftX = applyDeadzone(leftX);
+      const processedLeftY = applyDeadzone(leftY);
+      const processedRightX = applyDeadzone(rightX);
+      const processedRightY = applyDeadzone(rightY);
+
+      // Update ref values
+      controllerInputRef.current = {
+        leftX: processedLeftX,
+        leftY: processedLeftY,
+        rightX: processedRightX,
+        rightY: processedRightY
+      };
+
+      // Send movement command if there's input
+      if (processedLeftX !== 0 || processedLeftY !== 0 || processedRightX !== 0 || processedRightY !== 0) {
+        if (isFlying && socket && isConnected && telloConnected) {
+          const moveSpeed = Math.min(Math.max(speed, 10), 100);
+          const controls = {
+            left_right: Math.round(processedLeftX * moveSpeed),
+            for_back: Math.round(-processedLeftY * moveSpeed),
+            up_down: Math.round(-processedRightY * moveSpeed),
+            yaw: Math.round(processedRightX * moveSpeed)
+          };
+
+          socket.emit('move_control', controls);
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Error processing controller input:', error);
+    }
+  }, [
+    socket, 
+    isConnected, 
+    telloConnected, 
+    isFlying, 
+    speed, 
+    lastControllerButtonStates, 
+    handleControllerButton
+  ]);
+
+  const startControllerPolling = useCallback(() => {
+    if (isControllerPolling) {
+      console.log('🎮 Polling already active, skipping...');
+      return;
+    }
+    
+    if (controllerIndex === -1) {
+      console.log('🎮 No controller index, skipping polling...');
+      return;
+    }
+    
+    setIsControllerPolling(true);
+    console.log('🎮 Starting controller polling...', { controllerIndex, controlMode });
+    
+    const pollController = () => {
+      // Check mode first
+      if (controlMode !== 'Controller Mode') {
+        console.log('🎮 Mode changed, stopping polling');
+        if (controllerPollingRef.current) {
+          cancelAnimationFrame(controllerPollingRef.current);
+          controllerPollingRef.current = null;
+        }
+        setIsControllerPolling(false);
+        return;
+      }
+
+      const gamepads = navigator.getGamepads();
+      const gamepad = gamepads[controllerIndex];
+      
+      if (!gamepad) {
+        console.warn('🎮 Controller not found, stopping polling');
+        if (controllerPollingRef.current) {
+          cancelAnimationFrame(controllerPollingRef.current);
+          controllerPollingRef.current = null;
+        }
+        setIsControllerPolling(false);
+        return;
+      }
+
+      // Process controller input
+      processControllerInput(gamepad);
+      
+      // Schedule next poll
+      controllerPollingRef.current = requestAnimationFrame(pollController);
+    };
+
+    controllerPollingRef.current = requestAnimationFrame(pollController);
+  }, [controllerIndex, isControllerPolling, controlMode, processControllerInput]);
+
+  // FUNGSI UNTUK MENDETEKSI CONTROLLER
+  const detectController = useCallback(() => {
+    const gamepads = navigator.getGamepads();
+    for (let i = 0; i < gamepads.length; i++) {
+      if (gamepads[i]) {
+        console.log(`🎮 Controller detected: ${gamepads[i].id}`);
+        setConnectedController(gamepads[i]);
+        setControllerIndex(i);
+        return gamepads[i];
+      }
+    }
+    return null;
+  }, []);
+
+  // FUNGSI UNTUK MENANGANI CONTROLLER CONNECT
+  const handleControllerConnect = useCallback((event) => {
+    console.log(`🎮 Controller connected: ${event.gamepad.id}`);
+    setConnectedController(event.gamepad);
+    setControllerIndex(event.gamepad.index);
+    
+    // Mulai polling jika sedang dalam Controller Mode
+    if (controlMode === 'Controller Mode') {
+      startControllerPolling();
+    }
+  }, [controlMode, startControllerPolling]);
+
+  // FUNGSI UNTUK MENANGANI CONTROLLER DISCONNECT
+  const handleControllerDisconnect = useCallback((event) => {
+    console.log(`🎮 Controller disconnected: ${event.gamepad.id}`);
+    if (event.gamepad.index === controllerIndex) {
+      setConnectedController(null);
+      setControllerIndex(-1);
+      stopControllerPolling();
+    }
+  }, [controllerIndex, stopControllerPolling]);
+
 
   // Movement control function - stable reference
   const updateMovementFromKeyboard = useCallback(() => {
@@ -604,7 +1031,9 @@ function Control({
       window.removeEventListener('keyup', handleKeyUp)
     }  
   }, [controlMode, handleKeyDown, handleKeyUp]) // MINIMAL DEPENDENCIES
-
+  useEffect(() => {
+    setTempSpeed(speed)
+  }, [speed])
   // NEW: Cleanup interval on unmount or mode change
   useEffect(() => {
     return () => {
@@ -614,6 +1043,48 @@ function Control({
       }
     }
   }, [])
+  // CONTROLLER EVENT LISTENERS SETUP
+  useEffect(() => {
+    console.log('🎮 Setting up controller event listeners...');
+    
+    window.addEventListener('gamepadconnected', handleControllerConnect);
+    window.addEventListener('gamepaddisconnected', handleControllerDisconnect);
+
+    // Detect already connected controllers
+    detectController();
+
+    return () => {
+      console.log('🎮 Cleaning up controller event listeners...');
+      window.removeEventListener('gamepadconnected', handleControllerConnect);
+      window.removeEventListener('gamepaddisconnected', handleControllerDisconnect);
+      stopControllerPolling();
+    };
+  }, [handleControllerConnect, handleControllerDisconnect, detectController, stopControllerPolling]);
+
+  // CONTROLLER POLLING CONTROL BASED ON MODE AND CONNECTION
+  useEffect(() => {
+    console.log('🎮 Controller mode/connection changed:', {
+      controlMode,
+      connectedController: !!connectedController,
+      controllerIndex,
+      isControllerPolling
+    });
+
+    if (controlMode === 'Controller Mode' && connectedController && !isControllerPolling) {
+      console.log('🎮 Starting polling due to mode/controller change...');
+      startControllerPolling();
+    } else if (controlMode !== 'Controller Mode' && isControllerPolling) {
+      console.log('🎮 Stopping polling due to mode change...');
+      stopControllerPolling();
+    }
+  }, [controlMode, connectedController, isControllerPolling, startControllerPolling, stopControllerPolling]);
+
+  // CLEANUP ON UNMOUNT
+  useEffect(() => {
+    return () => {
+      stopControllerPolling();
+    };
+  }, [stopControllerPolling]);
 
   // NEW: Stop movement when switching away from Button Mode
   useEffect(() => {
@@ -759,7 +1230,6 @@ function Control({
                 className="w-full h-full object-cover rounded-lg"
                 style={{
                   filter: `brightness(${100 + brightness}%)`,
-                  transform: `scale(${zoom})`
                 }}
               />
             ) : (
