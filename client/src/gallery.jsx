@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { X, Download, Eye, Calendar, Camera, Video, Trash2 } from 'lucide-react'
-
+import { X, Download, Eye, Calendar, Camera, Video, Trash2, AlertCircle, RefreshCw } from 'lucide-react'
+const API_BASE_URL = 'http://localhost:5000';
 function Gallery({ isOpen, onClose, socket, isConnected }) {
   const [activeTab, setActiveTab] = useState('Images')
   const [mediaFiles, setMediaFiles] = useState([])
@@ -8,8 +8,41 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
   const [selectedMedia, setSelectedMedia] = useState(null)
   const [previewModal, setPreviewModal] = useState(false)
   const [error, setError] = useState(null)
+  const [debugMode, setDebugMode] = useState(false)
+  const [debugInfo, setDebugInfo] = useState(null)
 
-  // Fetch media files - WORKS WITHOUT DRONE CONNECTION
+  // Helper function to convert relative URLs to absolute
+  const getAbsoluteMediaUrl = (relativeUrl) => {
+    if (!relativeUrl) return '';
+    
+    // If already absolute URL, return as is
+    if (relativeUrl.startsWith('http')) {
+      return relativeUrl;
+    }
+    
+    // Convert relative URL to absolute
+    if (relativeUrl.startsWith('/media/')) {
+      return `${API_BASE_URL}${relativeUrl}`;
+    }
+    
+    // Fallback: assume it's just filename
+    return `${API_BASE_URL}/media/${relativeUrl}`;
+  };
+  // Enhanced error handling with detailed logging
+  const logError = (context, error) => {
+    console.error(`❌ Gallery Error [${context}]:`, error)
+    setError(`${context}: ${error.message || error}`)
+  }
+
+  // Clear error after some time
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 10000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
+  // Enhanced fetch with multiple fallback strategies
   const fetchMediaFiles = async () => {
     if (!isOpen) return
     
@@ -17,58 +50,100 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
     setError(null)
     
     try {
+      console.log(`📁 Fetching ${activeTab.toLowerCase()} files...`)
+      
       if (socket && isConnected) {
+        console.log('📡 Using Socket.IO method')
         // Use socket if available
-        console.log('📁 Fetching media via socket...')
         socket.emit('get_media_files', { type: activeTab.toLowerCase() })
       } else {
-        // Fallback to direct API call
-        console.log('📁 Fetching media via API fallback...')
-        const response = await fetch(`http://localhost:5000/api/media/list?type=${activeTab.toLowerCase()}`)
-        const data = await response.json()
+        console.log('🌐 Using REST API fallback')
+        // Fallback to direct API call with enhanced error handling
+        const apiUrl = `http://localhost:5000/api/media/list?type=${activeTab.toLowerCase()}`
+        console.log(`📡 Fetching from: ${apiUrl}`)
         
-        if (data.success) {
-          setMediaFiles(data.files || [])
-          console.log(`📁 Loaded ${data.files.length} files via API`)
-        } else {
-          throw new Error(data.error || 'Failed to fetch media files')
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+        
+        try {
+          const response = await fetch(apiUrl, {
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          clearTimeout(timeoutId)
+          
+          console.log(`📡 Response status: ${response.status}`)
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+          }
+          
+          const data = await response.json()
+          console.log('📊 API response:', data)
+          
+          if (data.success) {
+            setMediaFiles(data.files || [])
+            console.log(`✅ Loaded ${data.files.length} files via API`)
+          } else {
+            throw new Error(data.error || 'API returned unsuccessful response')
+          }
+        } catch (fetchError) {
+          clearTimeout(timeoutId)
+          
+          if (fetchError.name === 'AbortError') {
+            throw new Error('Request timeout - server may be offline')
+          } else if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+            throw new Error('Network error - cannot connect to server')
+          } else {
+            throw fetchError
+          }
         }
+        
         setLoading(false)
       }
     } catch (error) {
-      console.error('Error fetching media files:', error)
-      setError(`Failed to load media files: ${error.message}`)
+      logError('Fetch Media Files', error)
       setMediaFiles([])
       setLoading(false)
     }
   }
 
-  // Setup socket listeners
+  // Enhanced socket listeners with better error handling
   useEffect(() => {
     if (!socket) return
 
     const handleMediaFiles = (data) => {
-      console.log('📁 Received media files:', data)
+      console.log('📁 Socket received media files:', data)
+      
       if (data.success) {
         setMediaFiles(data.files || [])
-        console.log(`📁 Loaded ${data.files.length} files via socket`)
+        console.log(`✅ Loaded ${data.files.length} files via socket`)
+        setError(null) // Clear any previous errors
       } else {
-        setError(data.error || 'Failed to load media files')
+        logError('Socket Media Files', data.error || 'Failed to load media files')
         setMediaFiles([])
       }
       setLoading(false)
     }
 
     const handleMediaDeleted = (data) => {
+      console.log('🗑️ Socket delete response:', data)
+      
       if (data.success) {
-        console.log('🗑️ File deleted, refreshing list')
-        fetchMediaFiles()
+        console.log('✅ File deleted, refreshing list')
+        setError(null)
+        fetchMediaFiles() // Refresh the list
       } else {
-        setError(data.error || 'Failed to delete file')
+        logError('Delete File', data.error || 'Failed to delete file')
       }
     }
 
     const handleDownloadReady = (data) => {
+      console.log('📥 Socket download response:', data)
+      
       if (data.success) {
         // Create download link and trigger download
         const link = document.createElement('a')
@@ -79,19 +154,27 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
         link.click()
         document.body.removeChild(link)
         console.log('📥 Download started:', data.filename)
+        setError(null)
       } else {
-        setError(data.error || 'Failed to prepare download')
+        logError('Download File', data.error || 'Failed to prepare download')
       }
+    }
+
+    const handleDebugMedia = (data) => {
+      console.log('🐛 Debug media response:', data)
+      setDebugInfo(data.debug_info)
     }
 
     socket.on('media_files_response', handleMediaFiles)
     socket.on('media_deleted', handleMediaDeleted)
     socket.on('download_ready', handleDownloadReady)
+    socket.on('debug_media_response', handleDebugMedia)
 
     return () => {
       socket.off('media_files_response', handleMediaFiles)
       socket.off('media_deleted', handleMediaDeleted)
       socket.off('download_ready', handleDownloadReady)
+      socket.off('debug_media_response', handleDebugMedia)
     }
   }, [socket])
 
@@ -102,40 +185,83 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
     }
   }, [isOpen, activeTab])
 
-  const handleDownload = (filename) => {
+  // Enhanced download with better error handling
+  const handleDownload = async (filename) => {
     console.log('📥 Download request:', filename)
+    setError(null)
     
-    if (socket && isConnected) {
-      // Use socket if available
-      socket.emit('download_media', { filename })
-    } else {
-      // Direct download fallback
-      const link = document.createElement('a')
-      link.href = `http://localhost:5000/download/${filename}`
-      link.download = filename
-      link.target = '_blank'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+    try {
+      if (socket && isConnected) {
+        // Use socket if available
+        socket.emit('download_media', { filename })
+      } else {
+        // Direct download fallback with better error handling
+        const downloadUrl = `http://localhost:5000/download/${filename}`
+        console.log(`📥 Direct download from: ${downloadUrl}`)
+        
+        // Test if file exists first
+        try {
+          const testResponse = await fetch(downloadUrl, { method: 'HEAD' })
+          if (!testResponse.ok) {
+            throw new Error(`File not available: ${testResponse.status}`)
+          }
+        } catch (testError) {
+          throw new Error(`Cannot access file: ${testError.message}`)
+        }
+        
+        // Proceed with download
+        const link = document.createElement('a')
+        link.href = downloadUrl
+        link.download = filename
+        link.target = '_blank'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        console.log('📥 Direct download started:', filename)
+      }
+    } catch (error) {
+      logError('Download', error)
     }
   }
 
+  // Enhanced delete with confirmation
   const handleDelete = (filename) => {
-    if (window.confirm(`Are you sure you want to delete ${filename}?`)) {
+    if (window.confirm(`Are you sure you want to delete ${filename}?\n\nThis action cannot be undone.`)) {
       console.log('🗑️ Delete request:', filename)
+      setError(null)
       
-      if (socket && isConnected) {
-        socket.emit('delete_media', { filename })
-      } else {
-        setError('Delete function requires backend connection')
+      try {
+        if (socket && isConnected) {
+          socket.emit('delete_media', { filename })
+        } else {
+          logError('Delete', 'Delete function requires backend connection')
+        }
+      } catch (error) {
+        logError('Delete Request', error)
       }
     }
   }
 
+  // Enhanced preview with better error handling
   const handlePreview = (file) => {
     console.log('👁️ Preview request:', file.filename)
+    setError(null)
     setSelectedMedia(file)
     setPreviewModal(true)
+  }
+
+  // Debug mode toggle
+  const toggleDebugMode = () => {
+    setDebugMode(!debugMode)
+    if (!debugMode && socket && isConnected) {
+      socket.emit('debug_media_system')
+    }
+  }
+
+  // Enhanced refresh with loading state
+  const handleRefresh = async () => {
+    setError(null)
+    await fetchMediaFiles()
   }
 
   const formatFileSize = (bytes) => {
@@ -179,13 +305,38 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                   ⚠️ Backend offline - Limited functionality
                 </p>
               )}
+              {debugMode && (
+                <button
+                  onClick={toggleDebugMode}
+                  className="text-xs text-blue-600 mt-1 hover:underline"
+                >
+                  🐛 Debug Mode: ON
+                </button>
+              )}
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors"
-            >
-              <X className="w-8 h-8 text-deep-teal" />
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors disabled:opacity-50"
+                title="Refresh"
+              >
+                <RefreshCw className={`w-5 h-5 text-deep-teal ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={toggleDebugMode}
+                className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors"
+                title="Debug Mode"
+              >
+                <AlertCircle className="w-5 h-5 text-deep-teal" />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors"
+              >
+                <X className="w-8 h-8 text-deep-teal" />
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -217,16 +368,58 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
             </div>
           </div>
 
-          {/* Error Message */}
+          {/* Debug Panel */}
+          {debugMode && debugInfo && (
+            <div className="bg-gray-100 p-4 mx-6 mt-4 rounded border text-sm">
+              <h4 className="font-bold text-gray-800 mb-2">🐛 Debug Information</h4>
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <strong>Directories:</strong>
+                  <ul className="ml-2">
+                    <li>Screenshots: {debugInfo.directories?.screenshots}</li>
+                    <li>Recordings: {debugInfo.directories?.recordings}</li>
+                  </ul>
+                </div>
+                <div>
+                  <strong>File Counts:</strong>
+                  <ul className="ml-2">
+                    <li>Screenshots: {debugInfo.file_counts?.screenshots}</li>
+                    <li>Recordings: {debugInfo.file_counts?.recordings}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Enhanced Error Message */}
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 mx-6 mt-4 rounded">
-              <strong>Error:</strong> {error}
-              <button 
-                onClick={() => setError(null)}
-                className="float-right text-red-700 hover:text-red-900"
-              >
-                ×
-              </button>
+              <div className="flex items-center">
+                <AlertCircle className="w-5 h-5 mr-2" />
+                <div className="flex-1">
+                  <strong>Error:</strong> {error}
+                </div>
+                <button 
+                  onClick={() => setError(null)}
+                  className="text-red-700 hover:text-red-900 ml-2"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="mt-2 text-sm">
+                <button
+                  onClick={handleRefresh}
+                  className="text-red-600 hover:text-red-800 underline mr-4"
+                >
+                  Try Again
+                </button>
+                <button
+                  onClick={toggleDebugMode}
+                  className="text-red-600 hover:text-red-800 underline"
+                >
+                  Show Debug Info
+                </button>
+              </div>
             </div>
           )}
 
@@ -237,6 +430,9 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-deep-teal mx-auto mb-4"></div>
                   <p className="text-deep-teal text-lg">Loading media files...</p>
+                  <p className="text-deep-teal/70 text-sm mt-2">
+                    {isConnected ? 'Connected to backend' : 'Trying fallback methods'}
+                  </p>
                 </div>
               </div>
             ) : mediaFiles.length === 0 ? (
@@ -252,12 +448,22 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                   <h3 className="text-xl font-semibold text-deep-teal mb-2">
                     No {activeTab.toLowerCase()} found
                   </h3>
-                  <p className="text-deep-teal/70">
+                  <p className="text-deep-teal/70 mb-4">
                     {activeTab === 'Images' 
                       ? 'Take some screenshots to see them here' 
                       : 'Record some videos to see them here'
                     }
                   </p>
+                  {error && (
+                    <div className="mt-4 p-3 bg-yellow-100 rounded text-sm text-yellow-800">
+                      <p>If you expect files to be here, try:</p>
+                      <ul className="list-disc list-inside mt-2 text-left">
+                        <li>Check if the backend server is running</li>
+                        <li>Verify file permissions in the media directories</li>
+                        <li>Look at debug information for more details</li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -270,15 +476,20 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                     {/* Thumbnail */}
                     <div className="relative aspect-video bg-gray-100">
                       {activeTab === 'Images' ? (
-                        <img
-                          src={file.url}
-                          alt={file.filename}
-                          className="w-full h-full object-cover cursor-pointer"
-                          onClick={() => handlePreview(file)}
-                          onError={(e) => {
-                            e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlPC90ZXh0Pjwvc3ZnPg=='
-                          }}
-                        />
+                      <img
+                        src={getAbsoluteMediaUrl(file.url)}
+                        alt={file.filename}
+                        className="w-full h-full object-cover cursor-pointer"
+                        onClick={() => handlePreview(file)}
+                        onError={(e) => {
+                          console.error('Image load error for:', getAbsoluteMediaUrl(file.url))
+                          e.target.style.display = 'none'
+                          e.target.nextSibling.style.display = 'flex'
+                        }}
+                        onLoad={() => {
+                          console.log('Image loaded successfully:', getAbsoluteMediaUrl(file.url))
+                        }}
+                      />
                       ) : (
                         <div 
                           className="w-full h-full bg-gray-200 flex items-center justify-center cursor-pointer"
@@ -287,6 +498,17 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                           <Video className="w-12 h-12 text-gray-400" />
                         </div>
                       )}
+                      
+                      {/* Error fallback for images */}
+                      <div 
+                        className="hidden w-full h-full bg-red-100 items-center justify-center text-red-600 text-sm"
+                      >
+                        <div className="text-center">
+                          <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+                          <p>Failed to load</p>
+                          <p className="text-xs">{file.filename}</p>
+                        </div>
+                      </div>
                       
                       {/* Overlay buttons */}
                       <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
@@ -343,6 +565,12 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                             </span>
                           )}
                         </div>
+                        {debugMode && (
+                          <div className="text-xs text-gray-500 mt-2">
+                            <p>URL: {file.url}</p>
+                            {file.file_path && <p>Path: {file.file_path}</p>}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -354,24 +582,39 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
           {/* Footer */}
           <div className="bg-light-blue p-4 border-t border-deep-teal/20">
             <div className="flex items-center justify-between">
-              <p className="text-deep-teal/70 text-sm">
-                {mediaFiles.length} {activeTab.toLowerCase()} found
-              </p>
-              <button
-                onClick={() => {
-                  setError(null)
-                  fetchMediaFiles()
-                }}
-                className="px-4 py-2 bg-deep-teal text-white rounded-lg hover:bg-dark-cyan transition-colors text-sm"
-              >
-                Refresh
-              </button>
+              <div className="flex items-center space-x-4">
+                <p className="text-deep-teal/70 text-sm">
+                  {mediaFiles.length} {activeTab.toLowerCase()} found
+                </p>
+                {!isConnected && (
+                  <span className="text-orange-600 text-sm">⚠️ Offline mode</span>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={toggleDebugMode}
+                  className={`px-3 py-1 rounded text-sm transition-colors ${
+                    debugMode 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  Debug
+                </button>
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="px-4 py-2 bg-deep-teal text-white rounded-lg hover:bg-dark-cyan transition-colors text-sm disabled:opacity-50"
+                >
+                  {loading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Preview Modal */}
+      {/* Enhanced Preview Modal */}
       {previewModal && selectedMedia && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-90 z-60 flex items-center justify-center p-4"
@@ -396,6 +639,9 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                   e.target.style.display = 'none'
                   e.target.nextSibling.style.display = 'flex'
                 }}
+                onLoad={() => {
+                  console.log('Preview image loaded:', selectedMedia.url)
+                }}
               />
             ) : (
               <video
@@ -404,6 +650,11 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                 onClick={(e) => e.stopPropagation()}
                 onError={(e) => {
                   console.error('Preview video load error:', selectedMedia.url)
+                  e.target.style.display = 'none'
+                  e.target.nextSibling.style.display = 'flex'
+                }}
+                onLoadedData={() => {
+                  console.log('Preview video loaded:', selectedMedia.url)
                 }}
               >
                 <source src={selectedMedia.url} type="video/mp4" />
@@ -413,20 +664,29 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
               </video>
             )}
             
-            {/* Error fallback for preview */}
+            {/* Enhanced error fallback for preview */}
             <div 
               className="hidden w-96 h-64 bg-gray-800 rounded-lg items-center justify-center text-white"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="text-center">
-                <div className="text-red-400 mb-2">❌</div>
-                <p>Failed to load media</p>
-                <button 
-                  onClick={() => handleDownload(selectedMedia.filename)}
-                  className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
-                >
-                  Download instead
-                </button>
+                <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                <p className="text-lg mb-2">Failed to load media</p>
+                <p className="text-sm text-gray-400 mb-4">{selectedMedia.filename}</p>
+                <div className="space-x-2">
+                  <button 
+                    onClick={() => handleDownload(selectedMedia.filename)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                  >
+                    Download instead
+                  </button>
+                  <button 
+                    onClick={toggleDebugMode}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded transition-colors"
+                  >
+                    Debug Info
+                  </button>
+                </div>
               </div>
             </div>
             
