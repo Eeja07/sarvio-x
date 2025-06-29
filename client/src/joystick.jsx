@@ -195,18 +195,7 @@ function VirtualJoystick({ joystickPosition, setJoystickPosition, telloConnected
           </>
         )}
         
-        {/* Connection status indicator */}
-        <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${
-          telloConnected ? 'bg-green-500' : 'bg-red-500'
-        }`} />
       </div>
-      
-      {/* Position debug info (hanya tampil saat development) */}
-      {process.env.NODE_ENV === 'development' && telloConnected && (
-        <div className="absolute -bottom-8 left-0 right-0 text-center text-xs text-white opacity-75">
-          X: {joystickPosition.x} Y: {joystickPosition.y}
-        </div>
-      )}
     </div>
   )
 }
