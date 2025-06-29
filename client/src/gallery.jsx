@@ -288,7 +288,7 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
     <>
       {/* Background Blur Overlay */}
       <div 
-        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
         onClick={onClose}
       >
         {/* Modal Container */}
@@ -302,34 +302,11 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
               <h2 className="text-3xl font-bold text-deep-teal">Media Gallery</h2>
               {!isConnected && (
                 <p className="text-sm text-orange-600 mt-1">
-                  ⚠️ Backend offline - Limited functionality
+                  ⚠️ Backend offline
                 </p>
-              )}
-              {debugMode && (
-                <button
-                  onClick={toggleDebugMode}
-                  className="text-xs text-blue-600 mt-1 hover:underline"
-                >
-                  🐛 Debug Mode: ON
-                </button>
               )}
             </div>
             <div className="flex items-center space-x-2">
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors disabled:opacity-50"
-                title="Refresh"
-              >
-                <RefreshCw className={`w-5 h-5 text-deep-teal ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                onClick={toggleDebugMode}
-                className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors"
-                title="Debug Mode"
-              >
-                <AlertCircle className="w-5 h-5 text-deep-teal" />
-              </button>
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-deep-teal/10 rounded-full transition-colors"
@@ -368,29 +345,6 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
             </div>
           </div>
 
-          {/* Debug Panel */}
-          {debugMode && debugInfo && (
-            <div className="bg-gray-100 p-4 mx-6 mt-4 rounded border text-sm">
-              <h4 className="font-bold text-gray-800 mb-2">🐛 Debug Information</h4>
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <strong>Directories:</strong>
-                  <ul className="ml-2">
-                    <li>Screenshots: {debugInfo.directories?.screenshots}</li>
-                    <li>Recordings: {debugInfo.directories?.recordings}</li>
-                  </ul>
-                </div>
-                <div>
-                  <strong>File Counts:</strong>
-                  <ul className="ml-2">
-                    <li>Screenshots: {debugInfo.file_counts?.screenshots}</li>
-                    <li>Recordings: {debugInfo.file_counts?.recordings}</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Enhanced Error Message */}
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 mx-6 mt-4 rounded">
@@ -412,12 +366,6 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                   className="text-red-600 hover:text-red-800 underline mr-4"
                 >
                   Try Again
-                </button>
-                <button
-                  onClick={toggleDebugMode}
-                  className="text-red-600 hover:text-red-800 underline"
-                >
-                  Show Debug Info
                 </button>
               </div>
             </div>
@@ -592,16 +540,6 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
               </div>
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={toggleDebugMode}
-                  className={`px-3 py-1 rounded text-sm transition-colors ${
-                    debugMode 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  Debug
-                </button>
-                <button
                   onClick={handleRefresh}
                   disabled={loading}
                   className="px-4 py-2 bg-deep-teal text-white rounded-lg hover:bg-dark-cyan transition-colors text-sm disabled:opacity-50"
@@ -679,12 +617,6 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
                   >
                     Download instead
-                  </button>
-                  <button 
-                    onClick={toggleDebugMode}
-                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded transition-colors"
-                  >
-                    Debug Info
                   </button>
                 </div>
               </div>

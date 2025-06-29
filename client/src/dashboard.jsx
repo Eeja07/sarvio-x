@@ -35,7 +35,6 @@ function Dashboard() {
     battery: 0,
     bluetooth: 'Disconnected',
     state: 'OFF',
-    control: 'Manual',
     flightTime: '00:00',
     wifiSignal: 0,
     sdkVersion: 'N/A',
@@ -117,7 +116,6 @@ function Dashboard() {
         
         setSensorData(prev => ({
           ...prev,
-          bluetooth: 'Connected',
           state: 'ON'
         }))
       })
@@ -189,6 +187,12 @@ function Dashboard() {
         setSensorData(prev => ({
           ...prev,
           battery: data.battery || 0
+        }))
+      })
+      newSocket.on('fps_update', (data) => {
+        setSensorData(prev => ({
+          ...prev,
+          FPS: data.fps || 0
         }))
       })
 
@@ -371,6 +375,8 @@ function Dashboard() {
     isFlying,
     isRecording,
     setIsRecording,
+    fps: sensorData.FPS,
+    flightTime: sensorData.flightTime,
     battery: sensorData.battery,
     showSpeedModal,
     setShowSpeedModal,
@@ -393,10 +399,6 @@ function Dashboard() {
           <div className="flex items-center space-x-4">
             <div>
               <h1 className="text-deep-teal text-4xl font-bold">SARVIO-X</h1>
-              <p className={`text-sm ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
-                Backend: {isConnected ? 'Connected' : 'Disconnected'}
-                {connectionAttempts > 0 && ` (Attempts: ${connectionAttempts})`}
-              </p>
             </div>
           </div>
           <div className="flex justify-between">

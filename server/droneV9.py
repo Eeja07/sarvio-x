@@ -47,7 +47,7 @@ class Config:
     FPS = 120
     WINDOW_WIDTH = 640
     WINDOW_HEIGHT = 480
-    SPEED = 50
+    SPEED = ''
     THREAD_COUNT = 5
     
     # Integration config
@@ -74,7 +74,7 @@ class SharedDataManager:
             'connected': False,
             'flying': False,
             'battery': 0,
-            'speed': 50,
+            'speed': '',
             'temperature': 0,
             'height': 0,
             'humans_detected': 0,
@@ -208,7 +208,7 @@ class DroneSystem:
         self.up_down_velocity = 0
         self.yaw_velocity = 0
         self.send_rc_control = False
-        self.speed = 50
+        self.speed = 20
         
         # Recording
         self.recording = False
@@ -1519,7 +1519,7 @@ class DroneWebBridge:
                 'connected': False,
                 'flying': False,
                 'battery': 0,
-                'speed': 50
+                'speed': 20
             })
             
             # Start web server

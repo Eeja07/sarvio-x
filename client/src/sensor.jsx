@@ -25,7 +25,7 @@ function Sensor({ sensorData }) {
       </div>
       
       {/* Drone Section */}
-      <div className="bg-deep-teal rounded-lg p-6">
+      <div className="bg-deep-teal rounded-lg p-6 text-xl">
         <h3 className="text-ivory text-3xl font-medium mb-3 flex items-center">
           <span className="w-5 h-5 bg-ivory rounded-full mr-2"></span>
           Drone
@@ -118,15 +118,6 @@ function Sensor({ sensorData }) {
                 style={{ width: `${sensorData.wifiSignal}%` }}
               />
             </div>
-          </div>
-          
-          {/* SDK Version */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-m">
-              <Code className="w-5 h-5 text-ivory" />
-              <span className="text-ivory">SDK & SN </span>
-            </div>
-            <span className="text-ivory">{sensorData.sdkVersion}/{sensorData.serialNumber}</span>
           </div>
         </div>
       </div>

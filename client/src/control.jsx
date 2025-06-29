@@ -784,22 +784,6 @@ function Control({
               </div>
             )}
 
-            {/* Connection Status Indicators */}
-            <div className="absolute top-5 right-5 flex space-x-2">
-              <div className={`w-6 h-6 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} 
-                   title={`Backend: ${isConnected ? 'Connected' : 'Disconnected'}`}></div>
-              <div className={`w-6 h-6 rounded-full ${telloConnected ? 'bg-blue-400' : 'bg-gray-400'}`}
-                   title={`Tello: ${telloConnected ? 'Connected' : 'Disconnected'}`}></div>
-            </div>
-
-            {/* Stream Status */}
-            {isConnected && (
-              <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded flex items-center space-x-1">
-                <div className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-red-500' : 'bg-gray-500'}`}></div>
-                <span>{isStreaming ? 'LIVE' : 'PAUSED'}</span>
-              </div>
-            )}
-
             {/* Recording Indicator */}
             {isRecording && (
               <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded flex items-center space-x-1">
@@ -1185,9 +1169,6 @@ function Control({
           
           {controlMode === 'Keyboard Mode' && (
             <div className="flex flex-col lg:flex-row w-full bg-deep-teal rounded-lg p-9 mb-2 gap-6">
-              <div className="absolute top-4 left-4 bg-blue-600 text-white px-3 py-1 rounded text-sm">
-                {keyboardEnabled ? 'Mode 2: Arrow Movement' : 'Mode 1: WASD Movement'}
-              </div>
               <div className="flex-1 w-full space-y-2">
                 <h3 className="text-xl font-semibold text-ivory mb-4 border-b border-ivory/30 pb-2">
                   Actions
@@ -1329,7 +1310,7 @@ function Control({
           </div>
 
           {/* NEW REORGANIZED Settings Panel */}
-          <div className="bg-deep-teal p-7 rounded-2xl text-center space-y-6">
+          <div className="bg-deep-teal p-7 rounded-2xl text-center space-y-4">
             {/* Detection Settings - Vertical Layout */}
             <div className="space-y-4 text-2xl">
               <label className={`rounded-xl flex items-center justify-between p-3 space-x-2 transition-colors ${
@@ -1402,7 +1383,7 @@ function Control({
               <button
                 onClick={handleCapture}
                 disabled={!telloConnected && !videoFrame}
-                className={`w-full p-4 rounded-xl transition-colors flex items-center justify-center gap-2 ${
+                className={`w-full p-3 rounded-xl transition-colors flex items-center justify-center gap-2 ${
                   (telloConnected || videoFrame)
                     ? 'bg-dark-cyan text-ivory hover:bg-deep-teal'     
                     : 'bg-dark-cyan text-gray-400 cursor-not-allowed' 
@@ -1416,7 +1397,7 @@ function Control({
               <button
                 onClick={handleRecord}
                 disabled={!telloConnected}
-                className={`w-full p-4 rounded-xl transition-colors flex items-center justify-center gap-2 ${
+                className={`w-full p-3 rounded-xl transition-colors flex items-center justify-center gap-2 ${
                   telloConnected  
                     ? `${isRecording ? 'bg-red-600 hover:bg-red-700' : 'bg-dark-cyan hover:bg-deep-teal'} text-ivory`
                     : 'bg-dark-cyan text-gray-400 cursor-not-allowed' 
@@ -1429,8 +1410,8 @@ function Control({
 
             {/* Brightness Control */}
             <div>
-              <h3 className="text-gray-400 font-medium text-2xl mb-3">Brightness</h3>
-              <div className="flex items-center gap-2 text-gray-400 text-2xl mb-2">
+              <h3 className="text-ivory font-medium text-2xl mb-1">Brightness</h3>
+              <div className="flex items-center gap-2 text-ivory text-2xl mb-2">
                 <span>-100</span>
                 <span className="flex-1 text-center text-ivory">{brightness}</span>
                 <span>100</span>
