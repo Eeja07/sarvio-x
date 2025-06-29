@@ -33,11 +33,11 @@ function Control({
   controlMode, 
   setControlMode,
   speed,
-  setSpeed,
-  rotation,
-  setRotation,
+  // setSpeed,
+  // rotation,
+  // setRotation,
   zoom,
-  setZoom,
+  // setZoom,
   humanDetection,
   setHumanDetection,
   autoScreenshot,
@@ -59,25 +59,58 @@ function Control({
   showSpeedModal,
   setShowSpeedModal,
   onSpeedButtonClick,
-  onSpeedChange
+  onSpeedChange,
+  keyboardEnabled,
+  setKeyboardEnabled
 }) {
+  // State declarations
   const [videoFrame, setVideoFrame] = useState(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [lastScreenshotTime, setLastScreenshotTime] = useState(0)
   const [tempSpeed, setTempSpeed] = useState(speed)
   
+  // NEW: Hold button functionality states
+  const [pressedButton, setPressedButton] = useState(null)
+  const intervalRef = useRef(null)
+  
+  // Movement control refs
+  const keysPressed = useRef(new Set())
+  
+  // Constants
   const leftColumnTextsKeyboard = [
-    "TAKEOFF = T",
-    "LANDING = L", 
-    "EMERGENCY = E",
+    "TAKEOFF = t",
+    "LANDING = q", 
+    "EMERGENCY = e",
+    "ON/OFF DETECTION = z",
+    "FLIP FORWARD = i",
+    "FLIP BACK = j",
+    "FLIP LEFT = k",
+    "FLIP RIGHT = l"
+  ];
+  
+  const rightColumnTextsKeyboard = [
+    "MOVE FORWARD = ↑/w",
+    "MOVE BACKWARD = ↓/s",
+    "MOVE LEFT = ←/a",
+    "MOVE RIGHT = →/d",
+    "MOVE UP = ↑/w",
+    "MOVE DOWN = ↓/s",
+    "ROTATE CW = ←/a",
+    "ROTATE CCW = →/d"
+  ];
+  
+  const leftColumnTextsController = [
+    "TAKEOFF = A",
+    "LANDING = B",
+    "EMERGENCY = START",
     "ON/OFF DETECTION = /",
     "FLIP FORWARD = I ",
     "FLIP BACK = J",
     "FLIP LEFT = K",
     "FLIP RIGHT = L"
   ];
-
-  const rightColumnTextsKeyboard = [
+  
+  const rightColumnTextsController = [
     "MOVE FORWARD = W",
     "MOVE BACKWARD = S",
     "MOVE LEFT = A",
@@ -87,104 +120,203 @@ function Control({
     "ROTATE CW = C",
     "ROTATE CCW = Z"
   ];
-  
-  const leftColumnTextsController = [
-    "TAKEOFF = A",
-    "LANDING = B",
-    "EMERGENCY = START",
-    "ON/OFF DETECTION = L1",
-    "FLIP FORWARD = Y ",
-    "FLIP BACK = A",
-    "FLIP LEFT = X",
-    "FLIP RIGHT = B"
-  ];
 
-  const rightColumnTextsController = [
-    "MOVE = LEFT STICK",
-    "ROTATE = RIGHT STICK X",
-    "UP/DOWN = RIGHT STICK Y",
-    "SCREENSHOT = R1",
-    "RECORD = R2",
-    "SPEED ADJUST = D-PAD",
-    "EMERGENCY = START + SELECT",
-    "FLIP = BUMPERS + STICK"
-  ];
-  
-  // Movement control refs
-  const keysPressed = useRef(new Set())
-  const lastJoystickPosition = useRef({ x: 0, y: 0 })
-
-  // Keyboard controls
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (!telloConnected || showSpeedModal) return
-      
-      const key = event.key.toLowerCase()
-      
-      if (!keysPressed.current.has(key)) {
-        keysPressed.current.add(key)
-        
-        switch (key) {
-          case 't':
-            if (!isFlying) handleTakeoff()
-            return
-          case 'l':
-            if (isFlying) handleLand()
-            return
-          case 'p':
-            handleCapture()
-            return
-          case 'r':
-            handleRecord()
-            return
-          case '/':
-            setHumanDetection(prev => !prev)
-            return
-          case 'i':
-            if (isFlying) handleFlip('up')
-            return
-          case 'j':
-            if (isFlying) handleFlip('down')
-            return
-          case 'k':
-            if (isFlying) handleFlip('left')
-            return
-          case ';':
-            if (isFlying) handleFlip('right')
-            return
-          case 'escape':
-            handleEmergency()
-            return
-        }
-        
-        if (isFlying && ['w', 's', 'a', 'd', 'q', 'e', 'z', 'c', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
-          updateMovementFromKeyboard()
-        }
+  // Action handlers - defined first with stable references
+  const handleTakeoff = useCallback(() => {
+    if (socket && telloConnected && !isFlying && isConnected) {
+      try {
+        socket.emit('takeoff')
+        console.log('🛫 Takeoff command sent')
+      } catch (error) {
+        console.error('❌ Error sending takeoff command:', error)
       }
     }
+  }, [socket, telloConnected, isFlying, isConnected])
 
-    const handleKeyUp = (event) => {
-      const key = event.key.toLowerCase()
-      keysPressed.current.delete(key)
-      
-      if (isFlying && ['w', 's', 'a', 'd', 'q', 'e', 'z', 'c', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
-        updateMovementFromKeyboard()
+  const handleLand = useCallback(() => {
+    if (socket && telloConnected && isFlying && isConnected) {
+      try {
+        socket.emit('land')
+        console.log('🛬 Land command sent')
+      } catch (error) {
+        console.error('❌ Error sending land command:', error)
       }
     }
+  }, [socket, telloConnected, isFlying, isConnected])
 
-    if (controlMode === 'Keyboard Mode') {
-      window.addEventListener('keydown', handleKeyDown)
-      window.addEventListener('keyup', handleKeyUp)
+  const handleEmergency = useCallback(() => {
+    if (socket && isConnected) {
+      try {
+        socket.emit('stop_movement')
+        if (isFlying && telloConnected) {
+          socket.emit('emergency_land')
+        }
+        console.log('🚨 Emergency command sent')
+      } catch (error) {
+        console.error('❌ Error sending emergency command:', error)
+      }
+    }
+  }, [socket, isConnected, isFlying, telloConnected])
+
+  const handleStart = useCallback(() => {
+    if (socket && telloConnected && isConnected) {
+      try {
+        socket.emit('start_autonomous_mode')
+        if (!isFlying) {
+          socket.emit('takeoff')     
+        }
+        console.log('🤖 Autonomous mode started')
+      } catch (error) {
+        console.error('❌ Error starting autonomous mode:', error)
+      }
+    }
+  }, [socket, telloConnected, isConnected, isFlying])
+
+  // Flip function
+  const handleFlip = useCallback((direction) => {
+    if (!socket || !isFlying || !telloConnected) return
+    
+    try {
+      switch (direction) {
+        case 'up':
+          socket.emit('flip_command', { direction: 'f' })
+          break
+        case 'down':
+          socket.emit('flip_command', { direction: 'b' })
+          break
+        case 'left':
+          socket.emit('flip_command', { direction: 'l' })        
+          break
+        case 'right':
+          socket.emit('flip_command', { direction: 'r' })        
+          break
+        default:
+          console.warn(`Unknown flip direction: ${direction}`)
+          return
+      }    
+      console.log(`🔄 Flip ${direction} command sent`)
+    } catch (error) {
+      console.error('❌ Error sending flip command:', error)
+    }  
+  }, [socket, isFlying, telloConnected])
+
+  // Capture handler
+  const handleCapture = useCallback(() => {
+    const now = Date.now()
+    if (now - lastScreenshotTime < 1000) {
+      console.log('⏱️ Screenshot rate limited')
+      return
+    }
+    
+    if (socket && isConnected && telloConnected) {
+      try {
+        socket.emit('manual_screenshot')
+        setLastScreenshotTime(now)
+        console.log('📸 Manual screenshot requested')
+      } catch (error) {
+        console.error('❌ Error taking screenshot:', error)
+      }
+    } else if (videoFrame) {
+      const link = document.createElement('a')
+      link.href = videoFrame
+      link.download = `tello_capture_${new Date().getTime()}.jpg`
+      link.click()
+      console.log('📸 Downloaded current frame')
+    }
+  }, [socket, isConnected, telloConnected, lastScreenshotTime, videoFrame])
+
+  // Record handler
+  const handleRecord = useCallback(() => {
+    if (socket && isConnected && telloConnected) {
+      try {
+        const newRecordingState = !isRecording
+        socket.emit('toggle_recording', { recording: newRecordingState })
+        setIsRecording(newRecordingState)
+        console.log(`🎥 Recording ${newRecordingState ? 'started' : 'stopped'}`)
+      } catch (error) {
+        console.error('❌ Error toggling recording:', error)
+      }
+    } else {
+      console.log('🎥 Recording feature requires Tello connection')
+    }
+  }, [socket, isConnected, telloConnected, isRecording, setIsRecording])
+
+  // Movement control function - stable reference
+  const updateMovementFromKeyboard = useCallback(() => {
+    if (!socket || !isFlying || !telloConnected) return
+
+    const moveSpeed = Math.min(Math.max(speed, 10), 100)
+    let controls = {
+      left_right: 0,
+      for_back: 0,
+      up_down: 0,
+      yaw: 0
     }
 
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
+    if (!keyboardEnabled) {
+      // Mode 1: WASD untuk movement, Arrow keys untuk up/down + yaw
+      if (keysPressed.current.has('a')) {
+        controls.left_right = -moveSpeed
+      }
+      if (keysPressed.current.has('d')) {
+        controls.left_right = moveSpeed
+      }
+      if (keysPressed.current.has('w')) {
+        controls.for_back = moveSpeed
+      }
+      if (keysPressed.current.has('s')) {
+        controls.for_back = -moveSpeed
+      }
+      if (keysPressed.current.has('arrowup')) {
+        controls.up_down = moveSpeed
+      }
+      if (keysPressed.current.has('arrowdown')) {
+        controls.up_down = -moveSpeed
+      }
+      if (keysPressed.current.has('arrowleft')) {
+        controls.yaw = -moveSpeed
+      }
+      if (keysPressed.current.has('arrowright')) {
+        controls.yaw = moveSpeed
+      }
+    } else {
+      // Mode 2: Arrow keys untuk movement, WASD untuk up/down + yaw
+      if (keysPressed.current.has('arrowleft')) {
+        controls.left_right = -moveSpeed
+      }
+      if (keysPressed.current.has('arrowright')) {
+        controls.left_right = moveSpeed
+      }
+      if (keysPressed.current.has('arrowup')) {
+        controls.for_back = moveSpeed
+      }
+      if (keysPressed.current.has('arrowdown')) {
+        controls.for_back = -moveSpeed
+      }
+      if (keysPressed.current.has('w')) {
+        controls.up_down = moveSpeed
+      }
+      if (keysPressed.current.has('s')) {
+        controls.up_down = -moveSpeed
+      }
+      if (keysPressed.current.has('a')) {
+        controls.yaw = -moveSpeed
+      }  
+      if (keysPressed.current.has('d')) {
+        controls.yaw = moveSpeed
+      }  
     }
-  }, [controlMode, telloConnected, isFlying, humanDetection, showSpeedModal])
-  
-  // Directional move
-  const handleDirectionalMove = useCallback((direction) => {
+    
+    try {
+      socket.emit('move_control', controls)
+      console.log(`🎮 Movement (Mode ${keyboardEnabled ? '2' : '1'}):`, controls)
+    } catch (error) {
+      console.error('❌ Error sending keyboard control:', error)
+    }  
+  }, [keyboardEnabled, socket, isFlying, telloConnected, speed])
+
+  // NEW: Hold movement control function
+  const sendContinuousMovement = useCallback((direction) => {
     if (!socket || !isFlying || !telloConnected) return
     
     const moveSpeed = Math.min(Math.max(speed, 10), 100)
@@ -193,7 +325,7 @@ function Control({
       for_back: 0,
       up_down: 0,
       yaw: 0
-    }
+    }  
     
     switch (direction) {
       case 'forward':
@@ -223,7 +355,103 @@ function Control({
       default:
         console.warn(`Unknown direction: ${direction}`)
         return
+    }    
+    
+    try {
+      socket.emit('move_control', controls)
+      console.log(`🎮 Hold Movement ${direction}:`, controls)
+    } catch (error) {
+      console.error('❌ Error sending hold movement command:', error)
+    }  
+  }, [socket, isFlying, telloConnected, speed])
+
+  // NEW: Handle button press (start hold)
+  const handleButtonPress = useCallback((direction) => {
+    if (!socket || !isFlying || !telloConnected) return
+    
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
     }
+    
+    setPressedButton(direction)
+    
+    // Send first command immediately
+    sendContinuousMovement(direction)
+    
+    // Start interval for continuous movement
+    intervalRef.current = setInterval(() => {
+      sendContinuousMovement(direction)
+    }, 100) // Send command every 100ms
+    
+    console.log(`🎮 Started holding button: ${direction}`)
+  }, [socket, isFlying, telloConnected, sendContinuousMovement])
+
+  // NEW: Handle button release (stop hold)
+  const handleButtonRelease = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+    
+    if (pressedButton) {
+      console.log(`🎮 Released button: ${pressedButton}`)
+    }
+    
+    setPressedButton(null)
+    
+    // Stop movement
+    if (socket && socket.connected) {
+      try {
+        socket.emit('stop_movement')
+        console.log('🛑 Stop movement command sent')
+      } catch (error) {
+        console.error('❌ Error sending stop movement command:', error)
+      }
+    }
+  }, [socket, pressedButton])
+
+  // Directional move (for old click behavior - keeping for compatibility)
+  const handleDirectionalMove = useCallback((direction) => {
+    if (!socket || !isFlying || !telloConnected) return
+    
+    const moveSpeed = Math.min(Math.max(speed, 10), 100)
+    let controls = {
+      left_right: 0,
+      for_back: 0,
+      up_down: 0,
+      yaw: 0
+    }  
+    
+    switch (direction) {
+      case 'forward':
+        controls.for_back = moveSpeed
+        break
+      case 'backward':
+        controls.for_back = -moveSpeed  
+        break
+      case 'left':
+        controls.left_right = -moveSpeed
+        break
+      case 'right':
+        controls.left_right = moveSpeed 
+        break
+      case 'up':
+        controls.up_down = moveSpeed
+        break 
+      case 'down':
+        controls.up_down = -moveSpeed
+        break
+      case 'yaw_left':
+        controls.yaw = -moveSpeed
+        break
+      case 'yaw_right':
+        controls.yaw = moveSpeed
+        break
+      default:
+        console.warn(`Unknown direction: ${direction}`)
+        return
+    }    
     
     try {
       socket.emit('move_control', controls)
@@ -231,40 +459,178 @@ function Control({
       setTimeout(() => {
         if (socket && socket.connected) {
           socket.emit('stop_movement')
-        }
-      }, 200)
+        }  
+      }, 200)  
     } catch (error) {
       console.error('❌ Error sending move command:', error)
-    }
+    }  
   }, [socket, isFlying, telloConnected, speed])
 
-  // Flip function
-  const handleFlip = useCallback((direction) => {
-    if (!socket || !isFlying || !telloConnected) return
+  // Keyboard event handlers - STABLE REFERENCES with useCallback
+  const handleKeyDown = useCallback((event) => {
+    if (!telloConnected || showSpeedModal) return
     
-    try {
-      switch (direction) {
-        case 'up':
-          socket.emit('flip_command', { direction: 'f' })
-          break
-        case 'down':
-          socket.emit('flip_command', { direction: 'b' })
-          break
-        case 'left':
-          socket.emit('flip_command', { direction: 'l' })        
-          break
-        case 'right':
-          socket.emit('flip_command', { direction: 'r' })        
-          break
-        default:
-          console.warn(`Unknown flip direction: ${direction}`)
+    const key = event.key.toLowerCase()
+    
+    if (!keysPressed.current.has(key)) {
+      keysPressed.current.add(key)
+      
+      switch (key) {
+        case 't':
+          if (!isFlying) handleTakeoff()
+          return    
+        case 'q':
+          if (isFlying) handleLand()
+          return    
+        case 'o':
+          handleCapture()
           return
+        case 'p':
+          handleRecord()
+          return
+        case 'z':
+          setHumanDetection(prev => !prev)
+          return
+        case 'x':
+          setAutoScreenshot(prev => !prev)
+          return
+        case 'v':
+          setJoystickEnabled(prev => !prev)
+          return
+        case 'f':
+          setKeyboardEnabled(prev => {
+            const newMode = !prev
+            console.log(`🎮 Keyboard mode switched to: ${newMode ? 'Mode 2 (Arrow Movement)' : 'Mode 1 (WASD Movement)'}`)
+            
+            // Sync to backend if connected
+            if (socket && isConnected && telloConnected) {
+              try {
+                socket.emit('enable_change_keyboard', { enabled: newMode })
+              } catch (error) {
+                console.error('❌ Error syncing keyboard mode:', error)
+              }  
+            }  
+            return newMode
+          })  
+          return
+        case 'm':
+          onSpeedChange(speed + 10)
+          return
+        case 'n':
+          onSpeedChange(speed - 10) 
+          return
+        case 'i':
+          if (isFlying) handleFlip('up')
+          return    
+        case 'j':
+          if (isFlying) handleFlip('down')
+          return    
+        case 'k':
+          if (isFlying) handleFlip('left')
+          return    
+        case 'l':
+          if (isFlying) handleFlip('right')
+          return    
+        case 'e':
+          handleEmergency()
+          return
+      }    
+      
+      // Movement keys handling - berdasarkan mode keyboard
+      const movementKeys = !keyboardEnabled 
+        ? ['w', 's', 'a', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']
+        : ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 's', 'a', 'd']
+      
+      if (isFlying && movementKeys.includes(key)) {
+        updateMovementFromKeyboard()
+      }  
+    }  
+  }, [
+    telloConnected, 
+    showSpeedModal, 
+    isFlying, 
+    keyboardEnabled, 
+    speed,
+    socket,
+    isConnected,
+    handleTakeoff,
+    handleLand,
+    handleCapture,
+    handleRecord,
+    handleFlip,
+    handleEmergency,
+    updateMovementFromKeyboard,
+    setHumanDetection,
+    setAutoScreenshot,
+    setJoystickEnabled,
+    setKeyboardEnabled,
+    onSpeedChange
+  ])
+
+  const handleKeyUp = useCallback((event) => {
+    const key = event.key.toLowerCase()
+    keysPressed.current.delete(key)
+    
+    // Movement keys handling - berdasarkan mode keyboard
+    const movementKeys = !keyboardEnabled 
+      ? ['w', 's', 'a', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']
+      : ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 's', 'a', 'd']
+    
+    if (isFlying && movementKeys.includes(key)) {
+      updateMovementFromKeyboard()
+    }  
+  }, [isFlying, keyboardEnabled, updateMovementFromKeyboard])
+
+  // Speed modal handlers
+  const handleSpeedModalClose = () => {
+    setShowSpeedModal(false)
+    setTempSpeed(speed)
+  }
+
+  const handleSpeedApply = () => {
+    onSpeedChange(tempSpeed)
+    setShowSpeedModal(false)
+  }
+
+  // SEPARATED EVENT LISTENER EFFECT - Minimal dependencies, stable handlers
+  useEffect(() => {
+    if (controlMode === 'Keyboard Mode') {
+      window.addEventListener('keydown', handleKeyDown)
+      window.addEventListener('keyup', handleKeyUp)
+    }  
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }  
+  }, [controlMode, handleKeyDown, handleKeyUp]) // MINIMAL DEPENDENCIES
+
+  // NEW: Cleanup interval on unmount or mode change
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
       }
-      console.log(`🔄 Flip ${direction} command sent`)
-    } catch (error) {
-      console.error('❌ Error sending flip command:', error)
     }
-  }, [socket, isFlying, telloConnected])
+  }, [])
+
+  // NEW: Stop movement when switching away from Button Mode
+  useEffect(() => {
+    if (controlMode !== 'Button Mode' && intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+      setPressedButton(null)
+      
+      if (socket && socket.connected) {
+        try {
+          socket.emit('stop_movement')
+        } catch (error) {
+          console.error('❌ Error stopping movement on mode change:', error)
+        }
+      }
+    }
+  }, [controlMode, socket])
 
   // Joystick control
   useEffect(() => {
@@ -274,124 +640,29 @@ function Control({
         for_back: Math.round(-(leftJoystickPosition.y / 100) * speed),
         up_down: 0,
         yaw: 0
-      }
+      }  
       
       const rightControls = {
         left_right: 0,
         for_back: 0,
         up_down: Math.round(-(rightJoystickPosition.y / 100) * speed),
         yaw: Math.round((rightJoystickPosition.x / 100) * speed)
-      }
+      }  
       
       const combinedControls = {
         left_right: leftControls.left_right,
         for_back: leftControls.for_back,
         up_down: rightControls.up_down,
         yaw: rightControls.yaw
-      }
+      }  
       
       try {
         socket.emit('move_control', combinedControls)
       } catch (error) {
         console.error('❌ Error sending joystick control:', error)
-      }
-    }
+      }  
+    }  
   }, [leftJoystickPosition, rightJoystickPosition, controlMode, joystickEnabled, isFlying, socket, telloConnected, speed])
-
-  // Keyboard movement
-  const updateMovementFromKeyboard = useCallback(() => {
-    if (!socket || !isFlying || !telloConnected) return
-
-    const moveSpeed = Math.min(Math.max(speed, 10), 100)
-    let controls = {
-      left_right: 0,
-      for_back: 0,
-      up_down: 0,
-      yaw: 0
-    }
-
-    if (keysPressed.current.has('a')) {
-      controls.left_right = -moveSpeed
-    }
-    if (keysPressed.current.has('d')) {
-      controls.left_right = moveSpeed
-    }
-    if (keysPressed.current.has('w')) {
-      controls.for_back = moveSpeed
-    }
-    if (keysPressed.current.has('s')) {
-      controls.for_back = -moveSpeed
-    }
-    if (keysPressed.current.has('q') || keysPressed.current.has('arrowup')) {
-      controls.up_down = moveSpeed
-    }
-    if (keysPressed.current.has('e') || keysPressed.current.has('arrowdown')) {
-      controls.up_down = -moveSpeed
-    }
-    if (keysPressed.current.has('z') || keysPressed.current.has('arrowleft')) {
-      controls.yaw = -moveSpeed
-    }
-    if (keysPressed.current.has('c') || keysPressed.current.has('arrowright')) {
-      controls.yaw = moveSpeed
-    }
-
-    try {
-      socket.emit('move_control', controls)
-    } catch (error) {
-      console.error('❌ Error sending keyboard control:', error)
-    }
-  }, [socket, isFlying, telloConnected, speed])
-
-  // Action handlers
-  const handleTakeoff = () => {
-    if (socket && telloConnected && !isFlying && isConnected) {
-      try {
-        socket.emit('takeoff')
-        console.log('🛫 Takeoff command sent')
-      } catch (error) {
-        console.error('❌ Error sending takeoff command:', error)
-      }
-    }
-  }
-
-  const handleLand = () => {
-    if (socket && telloConnected && isFlying && isConnected) {
-      try {
-        socket.emit('land')
-        console.log('🛬 Land command sent')
-      } catch (error) {
-        console.error('❌ Error sending land command:', error)
-      }
-    }
-  }
-
-  const handleEmergency = () => {
-    if (socket && isConnected) {
-      try {
-        socket.emit('stop_movement')
-        if (isFlying && telloConnected) {
-          socket.emit('emergency_land')
-        }
-        console.log('🚨 Emergency command sent')
-      } catch (error) {
-        console.error('❌ Error sending emergency command:', error)
-      }
-    }
-  }
-  
-  const handleStart = () => {
-    if (socket && telloConnected && isConnected) {
-      try {
-        socket.emit('start_autonomous_mode')
-        if (!isFlying) {
-          socket.emit('takeoff')     
-        }
-        console.log('🤖 Autonomous mode started')
-      } catch (error) {
-        console.error('❌ Error starting autonomous mode:', error)
-      }
-    }
-  }
 
   // Video stream setup
   useEffect(() => {
@@ -470,58 +741,6 @@ function Control({
     }
   }, [autoScreenshot, socket, isConnected, telloConnected])
 
-  // Capture handler
-  const handleCapture = () => {
-    const now = Date.now()
-    if (now - lastScreenshotTime < 1000) {
-      console.log('⏱️ Screenshot rate limited')
-      return
-    }
-    
-    if (socket && isConnected && telloConnected) {
-      try {
-        socket.emit('manual_screenshot')
-        setLastScreenshotTime(now)
-        console.log('📸 Manual screenshot requested')
-      } catch (error) {
-        console.error('❌ Error taking screenshot:', error)
-      }
-    } else if (videoFrame) {
-      const link = document.createElement('a')
-      link.href = videoFrame
-      link.download = `tello_capture_${new Date().getTime()}.jpg`
-      link.click()
-      console.log('📸 Downloaded current frame')
-    }
-  }
-
-  // Record handler
-  const handleRecord = () => {
-    if (socket && isConnected && telloConnected) {
-      try {
-        const newRecordingState = !isRecording
-        socket.emit('toggle_recording', { recording: newRecordingState })
-        setIsRecording(newRecordingState)
-        console.log(`🎥 Recording ${newRecordingState ? 'started' : 'stopped'}`)
-      } catch (error) {
-        console.error('❌ Error toggling recording:', error)
-      }
-    } else {
-      console.log('🎥 Recording feature requires Tello connection')
-    }
-  }
-
-  // Speed modal handlers
-  const handleSpeedModalClose = () => {
-    setShowSpeedModal(false)
-    setTempSpeed(speed)
-  }
-
-  const handleSpeedApply = () => {
-    onSpeedChange(tempSpeed)
-    setShowSpeedModal(false)
-  }
-
   return (
     <div className="p-6 bg-powder-blue text-white rounded-lg shadow-lg">
       <div className="w-full bg-light-blue rounded-lg p-4 mb-6">
@@ -586,6 +805,14 @@ function Control({
               <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded flex items-center space-x-1">
                 <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
                 <span>REC</span>
+              </div>
+            )}
+
+            {/* NEW: Hold Button Status Indicator */}
+            {pressedButton && controlMode === 'Button Mode' && (
+              <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded flex items-center space-x-1">
+                <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
+                <span>HOLD: {pressedButton.toUpperCase()}</span>
               </div>
             )}
           </div>
@@ -821,16 +1048,22 @@ function Control({
                 </button>
               </div>
             </div>
+
+            {/* MODIFIED: Button Mode Movement Controls with Hold Functionality */}
             <div className="rounded-xl w-full h-62 bg-deep-teal">  
               <div className="p-3 flex flex-col md:flex-row justify-center md:justify-between items-center gap-8 md:gap-4 px-4 md:px-8 w-full max-w-md md:max-w-full mx-auto">
+                
+                {/* LEFT GRID: Forward/Backward + Left/Right Movement */}
                 <div className="grid grid-cols-3 grid-rows-3 gap-1 w-fit">
                   <div></div>
                   <button
-                    onClick={() => handleDirectionalMove('forward')}
+                    onMouseDown={() => handleButtonPress('forward')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'forward' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -839,11 +1072,13 @@ function Control({
                   <div></div>
                   
                   <button
-                    onClick={() => handleDirectionalMove('left')}
+                    onMouseDown={() => handleButtonPress('left')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'left' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -851,11 +1086,13 @@ function Control({
                   </button>
                   <div className="w-18 h-18"></div>
                   <button
-                    onClick={() => handleDirectionalMove('right')}
+                    onMouseDown={() => handleButtonPress('right')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'right' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -864,11 +1101,13 @@ function Control({
                   
                   <div></div>
                   <button
-                    onClick={() => handleDirectionalMove('backward')}
+                    onMouseDown={() => handleButtonPress('backward')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'backward' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -877,14 +1116,17 @@ function Control({
                   <div></div>
                 </div>
 
+                {/* RIGHT GRID: Up/Down + Yaw Left/Right Movement */}
                 <div className="grid grid-cols-3 grid-rows-3 gap-1 w-fit">
                   <div></div>
                   <button
-                    onClick={() => handleDirectionalMove('up')}
+                    onMouseDown={() => handleButtonPress('up')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'up' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -893,11 +1135,13 @@ function Control({
                   <div></div>
                   
                   <button
-                    onClick={() => handleDirectionalMove('yaw_left')}
+                    onMouseDown={() => handleButtonPress('yaw_left')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'yaw_left' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -905,11 +1149,13 @@ function Control({
                   </button>
                   <div className="w-18 h-18"></div>
                   <button
-                    onClick={() => handleDirectionalMove('yaw_right')}
+                    onMouseDown={() => handleButtonPress('yaw_right')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'yaw_right' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -918,11 +1164,13 @@ function Control({
                   
                   <div></div>
                   <button
-                    onClick={() => handleDirectionalMove('down')}
+                    onMouseDown={() => handleButtonPress('down')}
+                    onMouseUp={handleButtonRelease}
+                    onMouseLeave={handleButtonRelease}
                     disabled={!telloConnected || !isFlying}
-                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-18 h-18 text-4xl rounded-full flex items-center justify-center transition-colors select-none ${
                       telloConnected && isFlying
-                        ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                        ? `${pressedButton === 'down' ? 'bg-blue-800 scale-95' : 'bg-blue-600'} text-ivory hover:bg-blue-700 active:bg-blue-800`
                         : 'bg-dark-cyan text-deep-teal cursor-not-allowed'
                     }`}
                   >
@@ -937,6 +1185,9 @@ function Control({
           
           {controlMode === 'Keyboard Mode' && (
             <div className="flex flex-col lg:flex-row w-full bg-deep-teal rounded-lg p-9 mb-2 gap-6">
+              <div className="absolute top-4 left-4 bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                {keyboardEnabled ? 'Mode 2: Arrow Movement' : 'Mode 1: WASD Movement'}
+              </div>
               <div className="flex-1 w-full space-y-2">
                 <h3 className="text-xl font-semibold text-ivory mb-4 border-b border-ivory/30 pb-2">
                   Actions
