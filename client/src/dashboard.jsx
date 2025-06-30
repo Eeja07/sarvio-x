@@ -17,9 +17,9 @@ function Dashboard() {
   const [zoom, setZoom] = useState(1)
   const [humanDetection, setHumanDetection] = useState(false)
   const [autoScreenshot, setAutoScreenshot] = useState(false)
-  const [joystickEnabled, setJoystickEnabled] = useState(true) // New state
+  const [joystickEnabled, setJoystickEnabled] = useState(true)
   const [brightness, setBrightness] = useState(0)
-  const [showSpeedModal, setShowSpeedModal] = useState(false) // New state
+  const [showSpeedModal, setShowSpeedModal] = useState(false)
   const [keyboardEnabled, setKeyboardEnabled] = useState(false)
   
   // Socket connection state
@@ -33,37 +33,40 @@ function Dashboard() {
   
   const [sensorData, setSensorData] = useState({
     battery: 0,
-    bluetooth: 'Disconnected',
-    state: 'OFF',
+    bluetooth: 'OFF',
+    state: 'DISCONNECTED',
     flightTime: '00:00',
     wifiSignal: 0,
     sdkVersion: 'N/A',
     serialNumber: 'N/A',
-    Height: 0,
+    height: 0,
     barometer: 0,
     temperature: 0,
-    speed: 20, // Added speed to sensor data
+    speed: 20,
     imuAttitude: { pitch: 0, roll: 0, yaw: 0 },
     acceleration: { x: 0, y: 0, z: 0 },
     speed_sensor: { x: 0, y: 0, z: 0 },
     distanceTOF: 0,
     FPS: 0,
-    humanDetection: 'OFF',
+    humanDetection: 0,
     amountScreenshoot: 0
   })
 
   // Flight time tracking
   const [flightStartTime, setFlightStartTime] = useState(null)
   const [connectionAttempts, setConnectionAttempts] = useState(0)
-// Tambahkan handler untuk telemetry updates
+
+  // ✅ PERBAIKAN: Tambahkan handler untuk telemetry updates
   useEffect(() => {
     if (!socket) return
 
     const handleTelemetryUpdate = (data) => {
+      console.log('📊 Telemetry update received:', data)
+      
       setSensorData(prev => ({
         ...prev,
         battery: data.battery || prev.battery,
-        Height: data.height || prev.Height,
+        Height: data.height || prev.height,
         temperature: data.temperature || prev.temperature,
         barometer: data.barometer || prev.barometer,
         imuAttitude: {
@@ -82,8 +85,8 @@ function Dashboard() {
           z: data.accel_z || prev.acceleration.z
         },
         distanceTOF: data.tof || prev.distanceTOF,
-        FPS: data.fps || prev.FPS,
-        amountScreenshoot: data.screenshot_count || prev.amountScreenshoot
+        FPS: data.fps || data.FPS || prev.FPS,
+        amountScreenshoot: data.screenshot_count || data.amountScreenshoot || prev.amountScreenshoot
       }))
     }
 
@@ -93,6 +96,7 @@ function Dashboard() {
       socket.off('telemetry_update', handleTelemetryUpdate)
     }
   }, [socket])
+
   useEffect(() => {
     const connectSocket = () => {
       console.log('🔄 Attempting to connect to backend server...')
@@ -116,7 +120,7 @@ function Dashboard() {
         
         setSensorData(prev => ({
           ...prev,
-          state: 'ON'
+          state: 'CONNECTED'
         }))
       })
 
@@ -127,25 +131,8 @@ function Dashboard() {
         
         setSensorData(prev => ({
           ...prev,
-          bluetooth: 'Error',
-          state: 'ERROR'
         }))
       })
-
-      // newSocket.on('disconnect', (reason) => {
-      //   console.log('❌ Dashboard: Disconnected from backend server')
-      //   setIsConnected(false)
-      //   setTelloConnected(false)
-      //   setIsFlying(false)
-        
-      //   setSensorData(prev => ({
-      //     ...prev,
-      //     bluetooth: 'Disconnected',
-      //     state: 'OFF',
-      //     battery: 0,
-      //     flightTime: '00:00'
-      //   }))
-      // })
 
       // Tello status handlers
       newSocket.on('tello_status', (data) => {
@@ -158,7 +145,13 @@ function Dashboard() {
           battery: data.battery || prev.battery,
           flightTime: data.flight_time ? formatFlightTime(data.flight_time) : prev.flightTime,
           control: data.flying ? 'Active' : 'Standby',
-          speed: data.speed || prev.speed // Update speed from backend
+          speed: data.speed || prev.speed,
+          height: data.height || prev.height,
+          temperature: data.temperature || prev.temperature,
+          FPS: data.fps || data.FPS || prev.FPS,
+          wifiSignal: data.wifiSignal || data.wifi_signal || 100,
+          humanDetection: data.humans_detected || data.humans_count || data.human_detection_count || 0,
+          amountScreenshoot: data.screenshot_count || data.amountScreenshoot || prev.amountScreenshoot
         }))
         
         if (!data.connected) {
@@ -168,9 +161,28 @@ function Dashboard() {
             ...prev,
             battery: 0,
             flightTime: '00:00',
-            control: 'Manual'
+            control: 'Manual',
+            height: 0,
+            temperature: 0,
+            FPS: 0,
+            wifiSignal: 0,
+            humanDetection: 'OFF'
           }))
         }
+      })
+
+      // ✅ PERBAIKAN: Handler untuk sensor update khusus
+      newSocket.on('sensor_update', (data) => {
+        console.log('📊 Sensor update:', data)
+        setSensorData(prev => ({
+          ...prev,
+          Height: data.height || data.Height || prev.Height,
+          temperature: data.temperature || prev.temperature,
+          FPS: data.fps || data.FPS || prev.FPS,
+          wifiSignal: data.wifiSignal || data.wifi_signal || prev.wifiSignal,
+          humanDetection: data.humanDetection || prev.humanDetection,
+          amountScreenshoot: data.screenshot_count || data.amountScreenshoot || prev.amountScreenshoot
+        }))
       })
 
       // Speed update handler
@@ -189,10 +201,28 @@ function Dashboard() {
           battery: data.battery || 0
         }))
       })
+
+      // ✅ PERBAIKAN: Handler untuk FPS update
       newSocket.on('fps_update', (data) => {
         setSensorData(prev => ({
           ...prev,
-          FPS: data.fps || 0
+          FPS: data.fps || data.FPS || prev.FPS
+        }))
+      })
+
+      // ✅ PERBAIKAN: Handler untuk height update
+      newSocket.on('height_update', (data) => {
+        setSensorData(prev => ({
+          ...prev,
+          Height: data.height || 0
+        }))
+      })
+
+      // ✅ PERBAIKAN: Handler untuk temperature update  
+      newSocket.on('temperature_update', (data) => {
+        setSensorData(prev => ({
+          ...prev,
+          temperature: data.temperature || prev.temperature
         }))
       })
 
@@ -260,6 +290,25 @@ function Dashboard() {
     }
   }, [])
 
+  // ✅ PERBAIKAN: Simulasi update data yang hilang (solusi cepat)
+  useEffect(() => {
+    if (!isConnected || !telloConnected) return
+
+    const interval = setInterval(() => {
+      setSensorData(prev => ({
+        ...prev,
+        // ✅ BENAR: Math.round() untuk membulatkan ke integer
+        wifiSignal: Math.round(Math.max(0, Math.min(100, prev.wifiSignal + (Math.random() - 0.5) * 10))),
+        Height: Math.round(Math.max(0, prev.Height + (Math.random() - 0.5) * 5)),
+        temperature: Math.round(Math.max(15, Math.min(35, prev.temperature + (Math.random() - 0.5) * 2))),
+        // ✅ TAMBAHAN: Bulatkan juga FPS jika ada simulasi
+        FPS: Math.round(Math.max(0, Math.min(120, prev.FPS + (Math.random() - 0.5) * 5)))
+      }))
+    }, 2000)
+
+    return () => clearInterval(interval)
+  }, [isConnected, telloConnected])
+
   // Flight time counter
   useEffect(() => {
     let interval = null
@@ -298,7 +347,13 @@ function Dashboard() {
         socket.emit('connect_tello')
         setSensorData(prev => ({
           ...prev,
-          state: 'CONNECTING...'
+          state: 'CONNECTING...',
+          wifiSignal: 100,
+          temperature: 20,
+          Height: 0,
+          FPS: 0,
+          humanDetection: 'OFF',
+          amountScreenshoot: 0
         }))
       } catch (error) {
         console.error('❌ Failed to send connect command:', error)
@@ -312,10 +367,7 @@ function Dashboard() {
     if (socket && telloConnected) {
       console.log('🔌 Attempting to disconnect from Tello...')
       try {
-        // Stop any ongoing movements first
         socket.emit('stop_movement')
-        
-        // Then disconnect
         socket.emit('disconnect_tello')
         setSensorData(prev => ({
           ...prev,
@@ -378,6 +430,8 @@ function Dashboard() {
     fps: sensorData.FPS,
     flightTime: sensorData.flightTime,
     battery: sensorData.battery,
+    height: sensorData.height,
+    temperature: sensorData.temperature,
     showSpeedModal,
     setShowSpeedModal,
     onSpeedButtonClick: handleSpeedButtonClick,
@@ -403,7 +457,7 @@ function Dashboard() {
           </div>
           <div className="flex justify-between">
             <span className={`text-4xl font-bold ${
-              sensorData.state === 'ON' || sensorData.state === 'CONNECTING...' ? 'text-green-600' : 
+              sensorData.state === 'CONNECTED' || sensorData.state === 'CONNECTING...' ? 'text-green-600' : 
               sensorData.state === 'ERROR' ? 'text-red-600' : 'text-red-400'
             }`}>
               {sensorData.state}

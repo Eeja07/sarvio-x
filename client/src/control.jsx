@@ -216,6 +216,31 @@ function Control({
       }
     }
   }, [socket, isConnected, isFlying, telloConnected])
+  
+  const handleEmergencyAuto = useCallback(() => {
+    if (socket && isConnected) {
+      try {
+        // 1. Stop semua movement dulu
+        socket.emit('stop_movement')
+        
+        // 2. Stop autonomous mode
+        socket.emit('stop_autonomous_mode')
+        
+        // 3. Emergency landing
+        if (isFlying && telloConnected) {
+          socket.emit('emergency_auto') // Sekarang ada handler di backend
+        }
+        
+        console.log('🚨 Emergency AUTO command sent')
+        
+        // 4. Update local state
+        setControlMode('Button Mode') // atau mode lain
+        
+      } catch (error) {
+        console.error('❌ Error sending emergency command:', error)
+      }
+    }
+  }, [socket, isConnected, isFlying, telloConnected, setControlMode])
 
   const handleStart = useCallback(() => {
     if (socket && telloConnected && isConnected) {
@@ -1740,7 +1765,7 @@ function Control({
                   <Settings className="w-12 h-12 mb-1" />
                 </button>
                 <button
-                  onClick={handleEmergency}
+                  onClick={handleEmergencyAuto}
                   disabled={!telloConnected}
                   className={`w-32 h-25 rounded-xl flex items-center justify-center gap-2 transition-colors ${
                     telloConnected
@@ -1904,10 +1929,10 @@ function Control({
 
       {/* Speed Modal */}
       {showSpeedModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 backdrop-blur-sm bg-opacity-50 z-50 flex items-center justify-center">
           <div className="bg-powder-blue rounded-xl p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-2xl font-bold text-deep-teal">Set Drone Speed</h3>
+              <h3 className="text-2xl font-bold text-deep-teal">Set Speed</h3>
               <button
                 onClick={handleSpeedModalClose}
                 className="p-1 hover:bg-deep-teal/10 rounded-full transition-colors"
@@ -1921,9 +1946,6 @@ function Control({
                 <div className="text-4xl font-bold text-deep-teal mb-2">
                   {tempSpeed} cm/s
                 </div>
-                <p className="text-deep-teal/70">
-                  Adjust the speed of the drone (10-100 cm/s)
-                </p>
               </div>
               
               <div className="space-y-2">

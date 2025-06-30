@@ -80,7 +80,7 @@ function Sensor({ sensorData }) {
               <Eye className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Human Detection</span>
             </div>
-            <span className={`text-ivory ${''}`}>
+            <span className={`text-ivory ${sensorData.humanCount > 0 ? 'text-ivory' : ''}`}>
               {sensorData.humanDetection}
             </span>
           </div>
@@ -135,7 +135,7 @@ function Sensor({ sensorData }) {
               <ArrowUp className="w-5 h-5 text-ivory" />
               <span className="text-ivory">Height</span>
             </div>
-            <span className="text-ivory">{sensorData.Height} cm</span>
+            <span className="text-ivory">{sensorData.height} cm</span>
           </div>
           
           {/* Barometer */}

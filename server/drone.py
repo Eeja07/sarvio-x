@@ -1,543 +1,959 @@
-from djitellopy import Tello
-import cv2
-import pygame
-import numpy as np
-import time
 import sys
-import mediapipe as mp
-from ultralytics import YOLO
 import os
-from datetime import datetime
 import threading
-from flask import Flask, Response, render_template_string, request, send_from_directory
-from flask_socketio import SocketIO, emit
-from flask_cors import CORS
+import queue
+import time
+import json
 import base64
-import mimetypes
-from pathlib import Path
+import cv2
+import numpy as np
+from datetime import datetime
+from collections import deque
+import subprocess
+import signal
+import atexit
 
-# Speed of the drone
-S = 60
-# Frames per second of the pygame window display
-FPS = 30  # Reduced from 120 for better video processing & streaming
+# Web server imports
+try:
+    from flask import Flask, request, jsonify, send_file, send_from_directory
+    from flask_socketio import SocketIO, emit
+    from flask_cors import CORS
+    WEB_IMPORTS_AVAILABLE = True
+except ImportError:
+    print("⚠️ Web server dependencies not available. Install: pip install flask flask-socketio flask-cors")
+    WEB_IMPORTS_AVAILABLE = False
 
-class FrontEnd(object):
-    """ Maintains the Tello display and moves it through the keyboard keys and joystick.
-        Now also includes Flask-SocketIO server for React web interface integration.
-        Press escape key to quit.
-        The controls are:
-            - T: Takeoff
-            - L: Land
-            - Arrow keys: Forward, backward, left and right.
-            - A and D: Counter clockwise and clockwise rotations (yaw)
-            - W and S: Up and down.
-            - P: Manual screenshot
-            - Joystick: A=takeoff, B=land, X/Y=screenshot
-        
-        Web Interface:
-            - All controls available via React web interface
-            - Real-time video streaming with ML detection
-            - Flask-SocketIO communication on port 5000
-    """
+# Drone imports (from droneV7.py)
+try:
+    import pygame
+    import cv2
+    import numpy as np
+    from djitellopy import Tello
+    from ultralytics import YOLO
+    import mediapipe as mp
+    DRONE_IMPORTS_AVAILABLE = True
+except ImportError:
+    print("⚠️ Drone dependencies not available. Install required packages.")
+    DRONE_IMPORTS_AVAILABLE = False
+
+# ==================== CONFIGURATION ====================
+class Config:
+    # Web server config
+    WEB_HOST = '127.0.0.1'
+    WEB_PORT = 5000
+    WEB_DEBUG = False
+    
+    # Drone config (from droneV7.py)
+    FPS = 120
+    WINDOW_WIDTH = 640
+    WINDOW_HEIGHT = 480
+    SPEED = ''
+    THREAD_COUNT = 5
+    
+    # Integration config
+    FRAME_SHARE_FILE = "shared_frame.jpg"
+    STATUS_SHARE_FILE = "shared_status.json"
+    COMMAND_SHARE_FILE = "shared_commands.json"
+
+        # Media directories
+    SCREENSHOTS_DIR = "screenshots"
+    RECORDINGS_DIR = "recordings"
+    MEDIA_BASE_URL = "/media"
+    
+# ==================== SHARED DATA MANAGEMENT ====================
+class SharedDataManager:
+    """Manages communication between drone system and web server"""
+    
     def __init__(self):
-        # Init pygame
-        pygame.init()
+        self.status_lock = threading.Lock()
+        self.command_lock = threading.Lock()
+        self.frame_lock = threading.Lock()
+        
+        # Shared status data
+        self.status_data = {
+            'connected': False,
+            'flying': False,
+            'battery': 0,
+            'speed': '',
+            'temperature': 0,
+            'height': 0,
+            'humans_detected': 0,
+            'fps': 0,
+            'recording': False,
+            'ml_detection_enabled': False,
+            'auto_capture_enabled': False,
+            'screenshot_count': 0,
+            'flight_time': 0,
+            'keyboard_enabled': False,
+            'autonomous_mode': False,
+            'autonomous_action': 'idle',
+            'red_detected': False,
+            'pixel_count': 0,
+            'telemetry': {
+                'pitch': 0, 'roll': 0, 'yaw': 0,
+                'speed_x': 0, 'speed_y': 0, 'speed_z': 0,
+                'accel_x': 0, 'accel_y': 0, 'accel_z': 0,
+                'barometer': 0, 'tof': 0
+            }
+        }
+        
+        # Command queue
+        self.command_queue = queue.Queue()
+        
+        # Current frame
+        self.current_frame = None
+        self.current_frame_base64 = None
+        
+        # Create directories
+        self._create_directories()
+    def _create_directories(self):
+        """Create necessary directories"""
+        directories = [Config.SCREENSHOTS_DIR, Config.RECORDINGS_DIR]
+        for directory in directories:
+            os.makedirs(directory, exist_ok=True)
+            print(f"📁 Directory ready: {directory}")
+    
+    def convert_numpy_types(self, obj):
+        """Convert NumPy types to JSON serializable Python types"""
+        if isinstance(obj, dict):
+            return {key: self.convert_numpy_types(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self.convert_numpy_types(item) for item in obj]
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return obj
+    
+    def update_status(self, status_update):
+        """Update status data thread-safely with NumPy type conversion"""
+        with self.status_lock:
+            # Convert NumPy types before updating
+            converted_update = self.convert_numpy_types(status_update)
+            self.status_data.update(converted_update)
+    
+    def get_status(self):
+        """Get current status data with NumPy type conversion"""
+        with self.status_lock:
+            # Convert NumPy types before returning
+            return self.convert_numpy_types(self.status_data.copy())
+    
+    def add_command(self, command):
+        """Add command to queue"""
+        self.command_queue.put(command)
+    
+    def get_command(self):
+        """Get command from queue (non-blocking)"""
+        try:
+            return self.command_queue.get_nowait()
+        except queue.Empty:
+            return None
+    
+    def update_frame(self, frame):
+        """Update current frame"""
+        with self.frame_lock:
+            if frame is not None:
+                self.current_frame = frame.copy()
+                # Convert to base64 for web transmission
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                _, buffer = cv2.imencode('.jpg', frame_rgb)
+                self.current_frame_base64 = base64.b64encode(buffer).decode('utf-8')
+    
+    def get_frame_base64(self):
+        """Get current frame as base64"""
+        with self.frame_lock:
+            return self.current_frame_base64
 
-        # Create pygame window
-        pygame.display.set_caption("Tello video stream - SARVIO-X")
-        self.screen = pygame.display.set_mode([960, 720])
-        self.font = pygame.font.SysFont("Arial", 20)
+# Global shared data manager
+shared_data = SharedDataManager()
 
-        # Init Tello object that interacts with the Tello drone
-        self.tello = Tello()
-
-        # Drone velocities between -100~100
+# ==================== DRONE SYSTEM (Modified droneV7.py) ====================
+class DroneSystem:
+    """
+    Modified drone system from droneV7.py with web integration hooks
+    Struktur asli dipertahankan, hanya ditambahkan web integration points
+    """
+    
+    def __init__(self):
+        # Original droneV7.py variables
+        self.running = True
+        self.threads = []
+        
+        # Tello objects
+        self.tello = None
+        self.screen = None
+        self.joystick = None
+        
+        # AI models
+        self.yolo_model = None
+        self.pose = None
+        self.hands = None
+        
+        # Drone state
+        self.current_frame = None
+        self.current_processed_frame = None
+        self.battery_level = 0
+        self.human_detected = False
+        self.humans_count = 0
+        self.fps = 0
+        self.height = 0
+        self.temperature = 0
+        
+        # Control variables
         self.for_back_velocity = 0
         self.left_right_velocity = 0
         self.up_down_velocity = 0
         self.yaw_velocity = 0
-        self.speed = 20  # Default speed
-        self.current_speed_display = 20  # For real-time display
-
         self.send_rc_control = False
-        self.is_connected = False
-        self.is_flying = False
-        self.disconnect_requested = False  # Flag untuk handle disconnect
-
-        # Initialize joystick
-        pygame.joystick.init()
-        self.joystick = None
-        if pygame.joystick.get_count() > 0:
-            self.joystick = pygame.joystick.Joystick(0)
-            self.joystick.init()
-            print(f"Joystick initialized: {self.joystick.get_name()}")
-        else:
-            print("No joystick detected - using keyboard only")
-
-        # Create screenshots directory
-        self.screenshot_dir = "screenshots"
-        if not os.path.exists(self.screenshot_dir):
-            os.makedirs(self.screenshot_dir)
-            print(f"Created directory: {self.screenshot_dir}")
-
-        # Load YOLOv8 model for human detection
-        print("Loading YOLOv8 model...")
+        self.speed = 20
+        
+        # Recording
+        self.recording = False
+        self.video_writer = None
+        
+        # Detection
+        self.detection_enabled = True
+        self.current_detection = None
+        
+        # Autonomous behavior
+        self.set_autonomous_behavior = False
+        self.emergency_stop = False  # Tambahkan ini
+        
+        # Locks
+        self.data_lock = threading.Lock()
+        
+        # Web integration flag
+        self.web_integration_enabled = True
+        
+        print("🚁 Drone system initialized with web integration")
+    
+    def initialize_all_systems(self):
+        """Initialize all drone systems"""
         try:
+            if not self._initialize_pygame():
+                return False
+            if not self._initialize_tello():
+                return False
+            if not self._initialize_ai_models():
+                return False
+            
+            print("✅ All drone systems initialized successfully!")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to initialize drone systems: {e}")
+            return False
+    
+    def _initialize_pygame(self):
+        """Initialize pygame (headless mode for web)"""
+        try:
+            if self.web_integration_enabled:
+                # Headless mode - no display
+                os.environ['SDL_VIDEODRIVER'] = 'dummy'
+            
+            pygame.init()
+            pygame.display.set_caption("Tello video stream")
+            
+            if not self.web_integration_enabled:
+                self.screen = pygame.display.set_mode([Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT])
+            
+            # Initialize joystick
+            pygame.joystick.init()
+            if pygame.joystick.get_count() > 0:
+                self.joystick = pygame.joystick.Joystick(0)
+                self.joystick.init()
+                print(f"🎮 Joystick initialized: {self.joystick.get_name()}")
+            
+            return True
+        except Exception as e:
+            print(f"❌ Failed to initialize pygame: {e}")
+            return False
+    
+    def _initialize_tello(self):
+        """Initialize Tello drone connection"""
+        try:
+            self.tello = Tello()
+            self.tello.connect()
+            self.tello.set_speed(self.speed)
+            self.battery_level = self.tello.get_battery()
+            self.height = self.tello.get_height()
+            self.temperature = self.tello.get_temperature()
+            print(f"🔋 Battery: {self.battery_level}%")
+            
+            # Start video stream
+            self.tello.streamoff()
+            time.sleep(0.5)
+            self.tello.streamon()
+            
+            # Update shared data
+            shared_data.update_status({
+                'connected': True,
+                'battery': self.battery_level,
+                'speed': self.speed,
+                'temperature': self.temperature,
+                'height': self.height
+            })
+            
+            return True
+        except Exception as e:
+            print(f"❌ Failed to connect to Tello: {e}")
+            shared_data.update_status({'connected': False})
+            return False
+    
+    def _initialize_ai_models(self):
+        """Initialize AI models"""
+        try:
+            print("🤖 Loading AI models...")
             self.yolo_model = YOLO('yolov8n.pt')
-            print("YOLOv8 model loaded successfully")
+            
+            # MediaPipe
+            mp_pose = mp.solutions.pose
+            mp_hands = mp.solutions.hands
+            
+            self.pose = mp_pose.Pose(
+                min_detection_confidence=0.3,
+                min_tracking_confidence=0.3,
+                model_complexity=1
+            )
+            
+            self.hands = mp_hands.Hands(
+                min_detection_confidence=0.3,
+                min_tracking_confidence=0.3,
+                max_num_hands=2
+            )
+            
+            print("✅ AI models loaded successfully")
+            return True
         except Exception as e:
-            print(f"Error loading YOLO model: {e}")
-            self.yolo_model = None
-
-        # Mediapipe modules for body part detection
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
-        self.mp_pose = mp.solutions.pose
-        self.mp_hands = mp.solutions.hands
-
-        # Create MediaPipe models
-        self.pose = self.mp_pose.Pose(
-            min_detection_confidence=0.3,
-            min_tracking_confidence=0.3,
-            model_complexity=2,
-            enable_segmentation=False,
-            smooth_landmarks=True
-        )
-
-        self.hands = self.mp_hands.Hands(
-            min_detection_confidence=0.3,
-            min_tracking_confidence=0.3,
-            max_num_hands=2
-        )
-
-        # Screenshot variables
-        self.last_screenshot_time = 0
-        self.screenshot_interval = 3
-        self.screenshot_count = 0
-
-        # Auto screenshot countdown variables
-        self.countdown_active = False
-        self.countdown_start_time = 0
-        self.countdown_duration = 3.0
-        self.last_human_detected = False
-
-        # Joystick screenshot variables
-        self.last_joystick_screenshot_button_state = False
-        self.joystick_screenshot_requested = False
-
-        # FPS variables
-        self.prev_time = time.time()
-        self.fps = 0
-
-        # Web interface control flags
-        self.ml_detection_enabled = True
-        self.auto_capture_enabled = True
-        self.socket_streaming = False
-        self.connected_clients = 0
-        self.should_stop = False
-
-        # Recording state
-        self.is_recording = False
-
-        # Flight time tracking
-        self.flight_start_time = None
-
-        # Flask and SocketIO setup
-        self.app = Flask(__name__)
-        self.app.config['SECRET_KEY'] = 'tello_secret_key'
+            print(f"❌ Failed to initialize AI models: {e}")
+            return False
+    
+    def start_drone_threads(self):
+        """Start all drone threads"""
+        print("🚀 Starting drone threads...")
         
-        # CORS for React app (Vite default port 5173)
-        CORS(self.app, 
-            origins=["http://localhost:5173", "http://localhost:3000"],
-            allow_headers=["Content-Type"],
-            methods=["GET", "POST"])
+        thread_configs = [
+            ("Video Stream", self._video_stream_thread),
+            ("Drone Control", self._drone_control_thread),
+            ("Detection", self._detection_thread),
+            ("Autonomous Behavior", self._autonomous_behavior_thread),
+            ("Web Integration", self._web_integration_thread)
+        ]
         
-        # Socket.IO initialization with CORS
-        self.socketio = SocketIO(
-            self.app, 
-            cors_allowed_origins=["http://localhost:5173", "http://localhost:3000"],
-            async_mode='threading',
-            logger=False,  # Disable logging untuk mengurangi noise
-            engineio_logger=False,
-            ping_timeout=60,
-            ping_interval=25,
-            transports=['polling', 'websocket']
-        )
+        for name, target_func in thread_configs:
+            thread = threading.Thread(target=target_func, daemon=True, name=name)
+            thread.start()
+            self.threads.append(thread)
         
-        self.last_frame = None
-        self.frame_lock = threading.Lock()
+        print(f"✅ Started {len(self.threads)} drone threads")
 
-        # Setup Flask routes and Socket events
-        self._setup_flask_routes()
-        self._setup_socket_events()
+    def _video_stream_thread(self):
+        """Handle video capture and processing"""
+        print("📹 Video stream thread started")
         
-        # Setup enhanced media handling
-        self._setup_additional_flask_routes()
-        self._enhance_socket_events()
-
-        # create update timer
-        pygame.time.set_timer(pygame.USEREVENT + 1, 1000 // FPS)
-
-    def get_file_thumbnail(self, filepath):
-        """Generate thumbnail URL for media files"""
         try:
-            filename = os.path.basename(filepath)
-            file_ext = filename.lower().split('.')[-1]
+            frame_read = self.tello.get_frame_read()
+            frame_times = deque(maxlen=30)
             
-            # Untuk gambar, gunakan file asli sebagai thumbnail
-            if file_ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
-                return f'http://localhost:5000/media/{filename}'
-            
-            # Untuk video, bisa return placeholder atau generate thumbnail
-            elif file_ext in ['mp4', 'avi', 'mov', 'wmv', 'flv']:
-                return f'http://localhost:5000/media/{filename}'
-            
-            return None
-        except Exception as e:
-            print(f"Error generating thumbnail for {filepath}: {e}")
-            return None
-
-    def scan_media_directory(self, file_type='all'):
-        """Scan screenshots directory and return detailed file information"""
-        try:
-            files = []
-            
-            if not os.path.exists(self.screenshot_dir):
-                os.makedirs(self.screenshot_dir)
-                return files
-            
-            # Supported file extensions
-            image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-            video_extensions = {'.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.webm'}
-            
-            for filename in os.listdir(self.screenshot_dir):
-                filepath = os.path.join(self.screenshot_dir, filename)
-                
-                if not os.path.isfile(filepath):
-                    continue
-                    
-                file_ext = Path(filename).suffix.lower()
-                
-                # Filter berdasarkan type
-                is_image = file_ext in image_extensions
-                is_video = file_ext in video_extensions
-                
-                if file_type == 'images' and not is_image:
-                    continue
-                elif file_type == 'videos' and not is_video:
-                    continue
-                elif file_type == 'all' and not (is_image or is_video):
-                    continue
-                
+            while self.running:
                 try:
-                    # Get file statistics
-                    stat = os.stat(filepath)
+                    if frame_read.stopped:
+                        break
                     
-                    # Parse humans detected from filename
-                    humans_detected = 0
-                    if '_human_detected_' in filename:
-                        try:
-                            parts = filename.split('_')
-                            for i, part in enumerate(parts):
-                                if 'persons' in part and i > 0:
-                                    humans_detected = int(parts[i-1])
-                                    break
-                        except (ValueError, IndexError):
-                            humans_detected = 0
+                    frame = frame_read.frame
+                    if frame is not None:
+                        # Resize frame
+                        frame = cv2.resize(frame, (Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT))
+                        
+                        # Process detection if enabled
+                        if self.detection_enabled:
+                            output_frame, detected, count = self._process_human_detection(frame)
+                        else:
+                            output_frame = frame.copy()
+                            detected = False
+                            count = 0
+                        
+                        # Update shared data
+                        with self.data_lock:
+                            self.current_frame = frame.copy()
+                            self.current_processed_frame = output_frame.copy()
+                            self.human_detected = detected
+                            self.humans_count = count
+                            
+                            # Calculate FPS
+                            current_time = time.time()
+                            frame_times.append(current_time)
+                            if len(frame_times) > 1:
+                                time_diff = frame_times[-1] - frame_times[0]
+                                self.fps = len(frame_times) / time_diff if time_diff > 0 else 0
+                        
+                        # Update shared frame for web
+                        shared_data.update_frame(output_frame)
+                        
+                        if self.recording and self.video_writer:
+                            frame_bgr = cv2.cvtColor(output_frame, cv2.COLOR_RGB2BGR)
+                            self.video_writer.write(frame_bgr)
+                        
+                        # ✅ PERBAIKAN: Bulatkan FPS menjadi integer
+                        fps_int = int(round(self.fps))
+                        
+                        # Update status dengan FPS yang sudah dibulatkan
+                        shared_data.update_status({
+                            'fps': fps_int,
+                            'humans_detected': int(count),
+                            'Height': 0,
+                            'temperature': 0,
+                            'wifiSignal': 100,
+                            'humanDetection': 'ON' if detected else 'OFF',
+                            'ml_detection_enabled': self.detection_enabled
+                        })
                     
-                    # Determine file type
-                    media_type = 'image' if is_image else 'video'
-                    
-                    # Get MIME type
-                    mime_type, _ = mimetypes.guess_type(filename)
-                    
-                    file_info = {
-                        'filename': filename,
-                        'filepath': filepath,
-                        'size': stat.st_size,
-                        'created_at': datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                        'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        'humans_detected': humans_detected,
-                        'url': f'http://localhost:5000/media/{filename}',
-                        'thumbnail': self.get_file_thumbnail(filepath),
-                        'type': media_type,
-                        'mime_type': mime_type or f'{media_type}/unknown',
-                        'extension': file_ext[1:] if file_ext else 'unknown'
-                    }
-                    files.append(file_info)
+                    time.sleep(0.01)
                     
                 except Exception as e:
-                    print(f"Error processing file {filename}: {e}")
-                    continue
-            
-            # Sort by modified time (newest first)
-            files.sort(key=lambda x: x['modified_at'], reverse=True)
-            
-            return files
-            
+                    print(f"❌ Video stream error: {e}")
+                    time.sleep(0.1)
+        
         except Exception as e:
-            print(f"Error scanning media directory: {e}")
-            return []
-
-    def get_media_stats(self):
-        """Get statistics about media files"""
-        try:
-            all_files = self.scan_media_directory('all')
-            
-            stats = {
-                'total_files': len(all_files),
-                'total_images': len([f for f in all_files if f['type'] == 'image']),
-                'total_videos': len([f for f in all_files if f['type'] == 'video']),
-                'total_size': sum(f['size'] for f in all_files),
-                'files_with_humans': len([f for f in all_files if f['humans_detected'] > 0]),
-                'total_humans_detected': sum(f['humans_detected'] for f in all_files)
-            }
-            
-            return stats
-        except Exception as e:
-            print(f"Error getting media stats: {e}")
-            return {}
-
-    def _setup_flask_routes(self):
-        """Setup Flask routes for web interface"""
-        @self.app.route('/')
-        def index():
-            return render_template_string("""
-            <!DOCTYPE html>
-            <html>
-                <body>
-                    <h1>🚁 SARVIO-X Backend Server</h1>
-                    <h3>Live Video Stream:</h3>
-                    <img src="{{ url_for('video_feed') }}" width="640" height="480" alt="Tello Live Stream">
-                </body>
-            </html>
-            """)
-
-        @self.app.route('/video_feed')
-        def video_feed():
-            return Response(self._frame_generator(), 
-                            mimetype='multipart/x-mixed-replace; boundary=frame')
+            print(f"❌ Critical video stream error: {e}")
         
-        @self.app.route('/test_socket')
-        def test_socket():
-            """Test endpoint to check Socket.IO status"""
-            return {
-                'status': 'ok',
-                'connected_clients': self.connected_clients,
-                'socket_streaming': self.socket_streaming,
-                'tello_connected': self.is_connected,
-                'tello_flying': self.is_flying
-            }
-
-        @self.app.route('/media/<filename>')
-        def serve_media(filename):
-            """Serve media files from screenshots directory with proper headers"""
-            try:
-                response = send_from_directory(
-                    self.screenshot_dir, 
-                    filename,
-                    as_attachment=False
-                )
-                # Add CORS headers for media files
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                response.headers['Access-Control-Allow-Methods'] = 'GET'
-                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-                response.headers['Cache-Control'] = 'public, max-age=3600'
-                return response
-            except Exception as e:
-                print(f"Error serving media file {filename}: {e}")
-                return "File not found", 404
-
-        @self.app.route('/download/<filename>')
-        def download_media(filename):
-            """Download media files"""
-            try:
-                response = send_from_directory(
-                    self.screenshot_dir, 
-                    filename, 
-                    as_attachment=True,
-                    download_name=filename
-                )
-                # Add CORS headers
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                return response
-            except Exception as e:
-                print(f"Error downloading file {filename}: {e}")
-                return "File not found", 404
-
-    def _setup_additional_flask_routes(self):
-        """Setup additional Flask routes for enhanced media handling"""
-        
-        @self.app.route('/api/media/stats')
-        def get_media_statistics():
-            """Get media directory statistics"""
-            try:
-                stats = self.get_media_stats()
-                return {
-                    'success': True,
-                    'stats': stats
-                }
-            except Exception as e:
-                return {
-                    'success': False,
-                    'error': str(e)
-                }, 500
-        
-        @self.app.route('/api/media/list')
-        def list_media_files():
-            """List all media files with detailed information"""
-            try:
-                file_type = request.args.get('type', 'all')  # all, images, videos
-                files = self.scan_media_directory(file_type)
-                
-                return {
-                    'success': True,
-                    'files': files,
-                    'count': len(files),
-                    'type': file_type
-                }
-            except Exception as e:
-                return {
-                    'success': False,
-                    'error': str(e),
-                    'files': []
-                }, 500
+        print("📹 Video stream thread ended")
     
-    def _setup_socket_events(self):
-        """Setup Socket.IO event handlers for React frontend"""
+    def _drone_control_thread(self):
+        """Handle drone control commands"""
+        print("🎮 Drone control thread started")
         
-        @self.socketio.on('connect')
-        def handle_connect(auth):
-            self.connected_clients += 1
-            print(f'✅ React client connected. Total clients: {self.connected_clients}')
-            
-            # Send Tello status when client connects
-            self.broadcast_status()
-            
-            # Send current settings
-            emit('ml_detection_status', {'enabled': self.ml_detection_enabled})
-            emit('auto_capture_status', {'enabled': self.auto_capture_enabled})
-            emit('speed_update', {'speed': self.current_speed_display})
+        last_battery_check = time.time()
         
-        @self.socketio.on('disconnect')
-        def handle_disconnect():
-            self.connected_clients -= 1
-            print(f'❌ React client disconnected. Total clients: {self.connected_clients}')
-            
-            if self.connected_clients <= 0:
-                self.socket_streaming = False
-
-        @self.socketio.on('connect_tello')
-        def handle_connect_tello():
-            """Connect to Tello drone"""
-            print("🔗 Connect Tello command from React client")
-            self.disconnect_requested = False  # Reset flag
-            success = self.connect_tello()
-            
-            emit('tello_connection_result', {
-                'success': success,
-                'message': 'Tello connected successfully' if success else 'Failed to connect to Tello'
-            })
-            
-            self.broadcast_status()
-
-        @self.socketio.on('disconnect_tello')
-        def handle_disconnect_tello():
-            """Disconnect from Tello drone"""
-            print("🔌 Disconnect Tello command from React client")
-            self.disconnect_requested = True  # Set flag
-            success = self.disconnect_tello()
-            
-            emit('tello_connection_result', {
-                'success': success,
-                'message': 'Tello disconnected successfully' if success else 'Failed to disconnect from Tello'
-            })
-            
-            self.broadcast_status()
-            emit('clear_video_frame')
-        
-        @self.socketio.on('start_stream')
-        def handle_start_stream():
-            print("🎥 React client requested video stream")
-            self.socket_streaming = True
-            emit('stream_status', {'streaming': True, 'message': 'Video stream started'})
-        
-        @self.socketio.on('stop_stream')
-        def handle_stop_stream():
-            print("⏹️ React client stopped video stream")
-            self.socket_streaming = False
-            emit('stream_status', {'streaming': False, 'message': 'Video stream stopped'})
-        
-        @self.socketio.on('takeoff')
-        def handle_takeoff():
-            print("🚁 Takeoff command from React client")
-            success = self.takeoff_drone()
-        
-        @self.socketio.on('land')
-        def handle_land():
-            print("🏠 Land command from React client")
-            success = self.land_drone()
-        
-        @self.socketio.on('move_control')
-        def handle_move_control(data):
-            """Handle movement control from React client"""
-            if self.send_rc_control and not self.disconnect_requested:
-                self.left_right_velocity = int(data.get('left_right', 0))
-                self.for_back_velocity = int(data.get('for_back', 0))
-                self.up_down_velocity = int(data.get('up_down', 0))
-                self.yaw_velocity = int(data.get('yaw', 0))
+        while self.running:
+            try:
+                # Check for web commands
+                command = shared_data.get_command()
+                if command:
+                    self._execute_web_command(command)
                 
-                if self.is_connected:
+                # Send RC control if active
+                if self.send_rc_control and self.tello:
                     try:
                         self.tello.send_rc_control(
                             self.left_right_velocity,
-                            self.for_back_velocity,
+                            self.for_back_velocity, 
                             self.up_down_velocity,
                             self.yaw_velocity
                         )
                     except Exception as e:
-                        print(f"❌ Movement control error: {e}")
-        
-        @self.socketio.on('stop_movement')
-        def handle_stop_movement():
-            """Stop all movement from React client"""
-            self.left_right_velocity = 0
-            self.for_back_velocity = 0
-            self.up_down_velocity = 0
-            self.yaw_velocity = 0
-            
-            if self.is_connected and not self.disconnect_requested:
-                try:
-                    self.tello.send_rc_control(0, 0, 0, 0)
-                except Exception as e:
-                    print(f"❌ Stop movement error: {e}")
-
-        @self.socketio.on('set_speed')
-        def handle_set_speed(data):
-            """Set drone speed"""
-            new_speed = data.get('speed', 20)
-            if 10 <= new_speed <= 100:
-                self.speed = new_speed
-                self.current_speed_display = new_speed
+                        print(f"❌ RC command error: {e}")
                 
-                if self.is_connected:
+                # Update battery periodically
+                current_time = time.time()
+                if current_time - last_battery_check >= 10:  # Every 10 seconds
                     try:
-                        self.tello.set_speed(new_speed)
-                        print(f"⚡ Speed set to: {new_speed} cm/s")
+                        if self.tello:
+                            self.battery_level = self.tello.get_battery()
+                            self.height = self.tello.get_height()
+                            self.temperature = self.tello.get_temperature()
+                            shared_data.update_status({'battery': self.battery_level, 
+                                                       'height': self.height,
+                                                       'temperature': self.temperature})
+                        last_battery_check = current_time
                     except Exception as e:
-                        print(f"❌ Error setting speed: {e}")
+                        print(f"❌ Battery check error: {e}")
                 
-                # Broadcast speed update to all clients
-                self.socketio.emit('speed_update', {'speed': new_speed})
-            else:
-                emit('speed_update', {'speed': self.current_speed_display, 'error': 'Invalid speed range'})
+                time.sleep(1/30)  # 30 FPS control loop
+                
+            except Exception as e:
+                print(f"❌ Drone control error: {e}")
+                time.sleep(0.1)
+        
+        print("🎮 Drone control thread ended")
 
-        @self.socketio.on('flip_command')
-        def handle_flip_command(data):
-            """Handle flip commands"""
-            if self.is_connected and self.is_flying:
-                direction = data.get('direction', 'f')
-                try:
+    def _detect_red_in_roi(self, frame):
+        """Detect red color in ROI for autonomous behavior - Fixed with type conversion"""
+        try:
+            if frame is None:
+                return False, 0
+            
+            # Define ROI parameters
+            roi_x = Config.WINDOW_WIDTH // 4
+            roi_y = 5
+            roi_width = Config.WINDOW_WIDTH // 2
+            roi_height = Config.WINDOW_HEIGHT // 3
+            
+            # Extract ROI
+            roi = frame[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
+            
+            # Handle color format
+            if len(frame.shape) == 3:
+                roi_bgr = cv2.cvtColor(roi, cv2.COLOR_RGB2BGR)
+            else:
+                roi_bgr = roi
+            
+            # Convert to HSV
+            hsv_roi = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+            
+            # Red color ranges
+            lower_red1 = np.array([0, 50, 50])
+            upper_red1 = np.array([10, 255, 255])
+            lower_red2 = np.array([170, 50, 50])
+            upper_red2 = np.array([179, 255, 255])
+            
+            # Create masks
+            mask1 = cv2.inRange(hsv_roi, lower_red1, upper_red1)
+            mask2 = cv2.inRange(hsv_roi, lower_red2, upper_red2)
+            mask_roi = cv2.bitwise_or(mask1, mask2)
+            
+            # Count red pixels
+            pixel_count = np.sum(mask_roi > 0)
+            
+            # PERBAIKAN: Convert NumPy types to Python native types
+            pixel_count = int(pixel_count)  # numpy.int64 -> int
+            red_detected = pixel_count > 5000
+            
+            # if pixel_count > 0:
+            #     print(f"🔍 Red detection: pixels={pixel_count}, detected={red_detected}")
+            
+            return red_detected, pixel_count
+            
+        except Exception as e:
+            print(f"❌ Red detection error: {e}")
+            return False, 0  # Python native types
+        
+    def _detection_thread(self):
+        """Handle AI detection - Fixed version"""
+        print("🤖 Detection thread started")
+        
+        while self.running:
+            try:
+                if self.current_processed_frame is not None:
+                    # Get current frame safely
+                    with self.data_lock:
+                        if self.current_processed_frame is not None:
+                            frame_copy = self.current_processed_frame.copy()
+                        else:
+                            frame_copy = None
+                    
+                    if frame_copy is not None:
+                        # PERBAIKAN: Handle format warna dengan benar
+                        # Jika frame dari YOLO adalah BGR, tidak perlu convert
+                        # Jika frame dari YOLO adalah RGB, handle di _detect_red_in_roi
+                        
+                        # Perform red color detection for autonomous behavior
+                        red_detected, pixel_count = self._detect_red_in_roi(frame_copy)
+                        
+                        # Update detection results safely
+                        with self.data_lock:
+                            self.current_detection = {
+                                'red_detected': red_detected,
+                                'pixel_count': pixel_count,
+                                'timestamp': time.time()  # Tambahkan timestamp
+                            }
+                        
+                        # Update shared data untuk web interface
+                        shared_data.update_status({
+                            'red_detected': red_detected,
+                            'pixel_count': pixel_count
+                        })
+                else:
+                    # Clear detection when disabled
+                    with self.data_lock:
+                        self.current_detection = {
+                            'red_detected': False,
+                            'pixel_count': 0,
+                            'timestamp': time.time()
+                        }
+                
+                time.sleep(0.03)  # Control detection frequency
+                
+            except Exception as e:
+                print(f"❌ Detection thread error: {e}")
+                time.sleep(0.1)
+        
+        print("🤖 Detection thread ended")
+
+    def _autonomous_behavior_thread(self):
+        """Handle autonomous behavior - Fixed version with emergency check"""
+        print("🤖 Autonomous behavior thread started")
+        
+        last_action_time = 0
+        action_cooldown = 3.0
+        
+        while self.running:
+            try:
+                # PERBAIKAN: Cek emergency flag PERTAMA
+                if self.emergency_stop:
+                    print("🚨 Emergency stop detected, exiting autonomous behavior")
+                    self.set_autonomous_behavior = False
+                    shared_data.update_status({
+                        'autonomous_mode': False,
+                        'autonomous_action': 'emergency_stopped'
+                    })
+                    break  # Exit loop immediately
+                
+                # Cek apakah autonomous mode masih aktif
+                if not self.set_autonomous_behavior:
+                    print("🤖 Autonomous behavior disabled, thread pausing...")
+                    time.sleep(0.5)
+                    continue
+                
+                # Only run autonomous behavior if conditions are met
+                if (self.set_autonomous_behavior and 
+                    self.tello and
+                    not self.emergency_stop):  # TAMBAHAN: Cek emergency
+                    
+                    current_time = time.time()
+                    
+                    # Get current detection results safely
+                    with self.data_lock:
+                        if self.current_detection:
+                            red_detected = self.current_detection.get('red_detected', False)
+                            pixel_count = self.current_detection.get('pixel_count', 0)
+                            detection_time = self.current_detection.get('timestamp', 0)
+                        else:
+                            red_detected = False
+                            pixel_count = 0
+                            detection_time = 0
+                    
+                    # PERBAIKAN: Cek emergency lagi sebelum movement
+                    if self.emergency_stop:
+                        print("🚨 Emergency detected during movement preparation")
+                        break
+                    
+                    # Hanya ambil action jika ada deteksi baru dan cooldown selesai
+                    if (current_time - last_action_time > action_cooldown and
+                        current_time - detection_time < 1.0):
+                        
+                        if red_detected and not self.emergency_stop:  # Cek emergency
+                            print(f"🔴 Red detected in ROI! Pixel count: {pixel_count}")
+                            print("🎯 Moving towards target...")
+                            
+                            try:
+                                # PERBAIKAN: Cek emergency sebelum setiap movement
+                                if self.emergency_stop:
+                                    print("🚨 Emergency detected, stopping target movement")
+                                    break
+                                    
+                                self.tello.move_back(20)
+                                time.sleep(2)
+                                
+                                if self.emergency_stop:
+                                    print("🚨 Emergency detected, stopping rotation")
+                                    break
+                                    
+                                self.tello.rotate_clockwise(90)
+                                time.sleep(2)
+                                
+                                last_action_time = current_time
+                                
+                                # Update status
+                                shared_data.update_status({
+                                    'autonomous_action': 'target_detected',
+                                    'red_detected': True,
+                                    'pixel_count': pixel_count
+                                })
+                                
+                            except Exception as move_error:
+                                print(f"❌ Autonomous movement error: {move_error}")
+                        
+                        elif (current_time - last_action_time > action_cooldown * 2 and 
+                            not self.emergency_stop):  # Cek emergency
+                            # Search behavior
+                            print("⚪ No red in ROI. Searching...")
+                            
+                            try:
+                                if self.emergency_stop:
+                                    print("🚨 Emergency detected, stopping search")
+                                    break
+                                    
+                                self.tello.move_forward(20)
+                                time.sleep(1)
+                                
+                                last_action_time = current_time
+                                
+                                # Update status
+                                shared_data.update_status({
+                                    'autonomous_action': 'searching',
+                                    'red_detected': False,
+                                    'pixel_count': 0
+                                })
+                                
+                            except Exception as search_error:
+                                print(f"❌ Autonomous search error: {search_error}")
+                
+                time.sleep(0.1)
+                    
+            except Exception as e:
+                print(f"❌ Autonomous behavior error: {e}")
+                time.sleep(0.5)
+        
+        print("🤖 Autonomous behavior thread ended")
+
+    def _web_integration_thread(self):
+        """Handle web integration updates"""
+        print("🌐 Web integration thread started")
+        
+        while self.running:
+            try:
+                # Update telemetry data if available
+                if self.tello:
+                    try:
+                        # Get telemetry data (handle both string and dict)
+                        state_data = self.tello.get_current_state()
+                        telemetry = self._parse_telemetry(state_data)  # Pass raw data
+                        
+                        shared_data.update_status({
+                            'telemetry': telemetry,
+                            'flying': self.send_rc_control
+                        })
+                    except Exception as e:
+                        print(f"⚠️ Telemetry update error: {e}")
+                        pass
+                
+                time.sleep(1)  # Update every second
+                
+            except Exception as e:
+                print(f"❌ Web integration error: {e}")
+                time.sleep(1)
+        
+        print("🌐 Web integration thread ended")
+
+
+    def _parse_telemetry(self, state_data):
+        """Parse telemetry data with proper type conversion - Fixed version"""
+        telemetry = {
+            'pitch': 0.0, 'roll': 0.0, 'yaw': 0.0,
+            'speed_x': 0.0, 'speed_y': 0.0, 'speed_z': 0.0,
+            'accel_x': 0.0, 'accel_y': 0.0, 'accel_z': 0.0,
+            'barometer': 0.0, 'tof': 0.0
+        }
+        
+        try:
+            if not state_data:
+                return telemetry
+                
+            # Handle different return types from get_current_state()
+            if isinstance(state_data, dict):
+                # Handle dictionary format
+                for key, value in state_data.items():
+                    try:
+                        value = float(value)  # Convert to Python float
+                        
+                        if key in ['pitch', 'roll', 'yaw']:
+                            telemetry[key] = value
+                        elif key in ['vgx', 'vgy', 'vgz']:
+                            telemetry[f'speed_{key[-1]}'] = value
+                        elif key in ['agx', 'agy', 'agz']:
+                            telemetry[f'accel_{key[-1]}'] = value
+                        elif key == 'baro':
+                            telemetry['barometer'] = value
+                        elif key == 'tof':
+                            telemetry['tof'] = value
+                    except (ValueError, TypeError):
+                        pass  # Skip invalid values
+                        
+            elif isinstance(state_data, str):
+                # Handle string format
+                for item in state_data.split(';'):
+                    if ':' in item:
+                        key, value = item.split(':', 1)
+                        try:
+                            value = float(value)  # Convert to Python float
+                            
+                            if key in ['pitch', 'roll', 'yaw']:
+                                telemetry[key] = value
+                            elif key in ['vgx', 'vgy', 'vgz']:
+                                telemetry[f'speed_{key[-1]}'] = value
+                            elif key in ['agx', 'agy', 'agz']:
+                                telemetry[f'accel_{key[-1]}'] = value
+                            elif key == 'baro':
+                                telemetry['barometer'] = value
+                            elif key == 'tof':
+                                telemetry['tof'] = value
+                        except (ValueError, TypeError):
+                            pass  # Skip invalid values
+            else:
+                print(f"⚠️ Unexpected telemetry data type: {type(state_data)}")
+                
+        except Exception as e:
+            print(f"❌ Telemetry parsing error: {e}")
+        
+        return telemetry
+    def _process_human_detection(self, frame):
+        """Process human detection using YOLO"""
+        try:
+            output_frame = frame.copy()
+            
+            # YOLO Human Detection
+            results = self.yolo_model(frame, verbose=False)
+            
+            detected = False
+            human_count = 0
+            
+            for result in results:
+                boxes = result.boxes
+                if boxes is not None:
+                    for box in boxes:
+                        class_id = int(box.cls[0])
+                        confidence = float(box.conf[0])
+                        
+                        # Check if it's a person (class_id = 0 in COCO dataset)
+                        if class_id == 0 and confidence > 0.5:
+                            detected = True
+                            human_count += 1
+                            
+                            # Get bounding box coordinates
+                            x1, y1, x2, y2 = map(int, box.xyxy[0])
+                            
+                            # Draw bounding box
+                            cv2.rectangle(output_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            
+                            # Add label
+                            label = f"Human: {confidence*100:.0f}%"
+                            cv2.putText(output_frame, label, (x1, y1 - 10),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            return output_frame, detected, human_count
+            
+        except Exception as e:
+            print(f"❌ Human detection error: {e}")
+            return frame, False, 0
+    
+    def _execute_web_command(self, command):
+        """Execute command from web interface"""
+        try:
+            cmd_type = command.get('type')
+            cmd_data = command.get('data', {})
+            
+            print(f"🎯 Executing web command: {cmd_type}")
+            
+            if cmd_type == 'takeoff':
+                if self.tello and not self.send_rc_control:
+                    self.tello.takeoff()
+                    self.send_rc_control = True
+                    shared_data.update_status({'flying': True})
+                    print("✅ Takeoff completed")
+            
+            elif cmd_type == 'land':
+                if self.set_autonomous_behavior:
+                    self.set_autonomous_behavior = False
+                    self.send_rc_control = True
+                    
+                if self.tello and self.send_rc_control:
+                    self.tello.land()
+                    self.send_rc_control = False
+                    shared_data.update_status({'flying': False})
+                    print("✅ Landing completed")
+            
+            elif cmd_type == 'emergency':
+                # PERBAIKAN: Enhanced emergency handler
+                print("🚨 Emergency command received")
+                
+                # Set emergency flag if autonomous is running
+                if self.set_autonomous_behavior:
+                    self.emergency_stop = True
+                    self.set_autonomous_behavior = False
+                    print("🚨 Emergency stop set for autonomous mode")
+                
+                # Stop all movement
+                self.left_right_velocity = 0
+                self.for_back_velocity = 0
+                self.up_down_velocity = 0
+                self.yaw_velocity = 0
+                
+                if self.tello:
+                    self.tello.emergency()
+                    self.send_rc_control = False
+                    shared_data.update_status({'flying': False})
+                    print("🚨 Emergency executed")
+            elif cmd_type == 'emergency_auto':
+                # PERBAIKAN: Handler khusus untuk emergency di autonomous mode
+                print("🚨 Emergency AUTO command received - stopping autonomous mode")
+                self.set_emergency_stop = True
+                # 1. STOP autonomous behavior immediately
+                self.set_autonomous_behavior = False
+                shared_data.update_status({'autonomous_mode': False})
+                
+                # 2. STOP all movement
+                self.left_right_velocity = 0
+                self.for_back_velocity = 0
+                self.up_down_velocity = 0
+                self.yaw_velocity = 0
+                
+                # 4. Send immediate stop command
+                if self.tello and self.send_rc_control:
+                    try:
+                        self.tello.send_rc_control(0, 0, 0, 0)
+                        print("✅ RC control stopped")
+                    except Exception as e:
+                        print(f"❌ RC stop error: {e}")
+                
+                # 5. Emergency landing
+                if self.tello:
+                    try:
+                        self.tello.emergency()
+                        print("✅ Emergency executed - drone stopped")
+                    except Exception as e:
+                        print(f"❌ Emergency execution error: {e}")                
+                self.send_rc_control = False
+                shared_data.update_status({
+                    'flying': False,
+                    'autonomous_mode': False,
+                    'autonomous_action': 'emergency_stopped'
+                })
+                print("🚨 Emergency AUTO executed")
+            
+            elif cmd_type == 'enable_change_keyboard':
+                enabled = cmd_data.get('enabled', False)
+                shared_data.update_status({'keyboard_enabled': enabled})
+                print(f"🎮 Keyboard mode updated: {'Mode 2 (Arrow Movement)' if enabled else 'Mode 1 (WASD Movement)'}")
+
+            elif cmd_type == 'move_control':
+                controls = cmd_data
+                
+                # Get current keyboard mode from shared data
+                current_status = shared_data.get_status()
+                keyboard_enabled = current_status.get('keyboard_enabled', False)
+                
+                # Process movement commands based on keyboard mode
+                if keyboard_enabled:
+                    # Mode 2: Frontend sends based on Arrow keys setup
+                    # Frontend sudah mengirim nilai yang benar untuk Mode 2
+                    self.left_right_velocity = controls.get('left_right', 0)
+                    self.for_back_velocity = controls.get('for_back', 0)
+                    self.up_down_velocity = controls.get('up_down', 0)
+                    self.yaw_velocity = controls.get('yaw', 0)
+                else:
+                    # Mode 1: Frontend sends based on WASD setup  
+                    # Frontend sudah mengirim nilai yang benar untuk Mode 1
+                    self.left_right_velocity = controls.get('left_right', 0)
+                    self.for_back_velocity = controls.get('for_back', 0)
+                    self.up_down_velocity = controls.get('up_down', 0)
+                    self.yaw_velocity = controls.get('yaw', 0)
+                
+                # Debug log untuk memastikan values diterima
+                if any([self.left_right_velocity, self.for_back_velocity, self.up_down_velocity, self.yaw_velocity]):
+                    mode_text = "Mode 2" if keyboard_enabled else "Mode 1"
+                    print(f"🎮 Movement {mode_text}: LR={self.left_right_velocity}, FB={self.for_back_velocity}, UD={self.up_down_velocity}, YAW={self.yaw_velocity}")
+                        
+            elif cmd_type == 'stop_movement':
+                self.left_right_velocity = 0
+                self.for_back_velocity = 0
+                self.up_down_velocity = 0
+                self.yaw_velocity = 0
+            
+            elif cmd_type == 'set_speed':
+                self.speed = max(10, min(100, cmd_data.get('speed', 50)))
+                if self.tello:
+                    self.tello.set_speed(self.speed)
+                shared_data.update_status({'speed': self.speed})
+                print(f"⚡ Speed set to: {self.speed}")
+            
+            elif cmd_type == 'flip':
+                direction = cmd_data.get('direction', 'f')
+                if self.tello and self.send_rc_control:
                     if direction == 'f':
                         self.tello.flip_forward()
                     elif direction == 'b':
@@ -547,73 +963,363 @@ class FrontEnd(object):
                     elif direction == 'r':
                         self.tello.flip_right()
                     print(f"🔄 Flip {direction} executed")
-                except Exception as e:
-                    print(f"❌ Flip error: {e}")
-
-        @self.socketio.on('emergency_land')
-        def handle_emergency():
-            """Emergency stop and land"""
-            print("🚨 Emergency command from React client")
+            
+            elif cmd_type == 'enable_ml_detection':
+                self.detection_enabled = cmd_data.get('enabled', True)
+                shared_data.update_status({'ml_detection_enabled': self.detection_enabled})
+                print(f"🤖 ML Detection: {'ON' if self.detection_enabled else 'OFF'}")
+ 
+            elif cmd_type == 'start_autonomous_mode':
+                # PERBAIKAN: Reset emergency flag
+                self.emergency_stop = False
+                
+                self.send_rc_control = False
+                self.set_autonomous_behavior = True
+                self.detection_enabled = True
+                shared_data.update_status({'autonomous_mode': True, 'ml_detection_enabled': True })
+                
+                print("🤖 Autonomous mode: STARTED")
+                
+                # Ensure drone is flying for autonomous mode
+                if not self.send_rc_control:
+                    print("🛫 Auto-takeoff for autonomous mode")
+                    self.tello.takeoff()
+                    self.send_rc_control = False
+                    shared_data.update_status({'flying': True})            
+            elif cmd_type == 'stop_autonomous_mode':
+                # PERBAIKAN: Enhanced stop autonomous
+                print("🤖 Stopping autonomous mode...")
+                
+                # 1. Set flags to stop autonomous behavior
+                self.set_autonomous_behavior = False
+                self.emergency_stop = False  # Reset emergency flag
+                
+                # 2. Stop all movement immediately
+                self.left_right_velocity = 0
+                self.for_back_velocity = 0
+                self.up_down_velocity = 0
+                self.yaw_velocity = 0
+                
+                # 3. Send stop command to drone
+                if self.tello and self.send_rc_control:
+                    try:
+                        self.tello.send_rc_control(0, 0, 0, 0)
+                    except Exception as e:
+                        print(f"❌ Error stopping movement: {e}")
+                
+                # 4. Update status
+                shared_data.update_status({
+                    'autonomous_mode': False,
+                    'autonomous_action': 'stopped'
+                })
+                
+                print("🤖 Autonomous mode: STOPPED")
+            
+            elif cmd_type == 'manual_screenshot':
+                self._take_screenshot()
+            
+            elif cmd_type == 'toggle_recording':
+                self._toggle_recording()
+            
+        except Exception as e:
+            print(f"❌ Command execution error: {e}")
+    
+    def _take_screenshot(self):
+        """Take a screenshot"""
+        try:
+            if self.current_processed_frame is not None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"web_screenshot_{timestamp}.jpg"
+                filepath = os.path.join(Config.SCREENSHOTS_DIR, filename)
+                
+                frame_bgr = cv2.cvtColor(self.current_processed_frame, cv2.COLOR_RGB2BGR)
+                success = cv2.imwrite(filepath, frame_bgr)
+                
+                if success:
+                    current_count = shared_data.get_status().get('screenshot_count', 0) + 1
+                    shared_data.update_status({'screenshot_count': current_count})
+                    print(f"📸 Screenshot saved: {filename}")
+                    return True
+        except Exception as e:
+            print(f"❌ Screenshot error: {e}")
+        return False
+    
+    def _toggle_recording(self):
+        """Toggle video recording"""
+        try:
+            if not self.recording:
+                # Start recording
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"web_recording_{timestamp}.mp4"
+                filepath = os.path.join(Config.RECORDINGS_DIR, filename)
+                
+                fourcc = cv2.VideoWriter_fourcc(*'h264')
+                self.video_writer = cv2.VideoWriter(filepath, fourcc, 30.0, 
+                                                   (Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT))
+                
+                if self.video_writer.isOpened():
+                    self.recording = True
+                    shared_data.update_status({'recording': True})
+                    print(f"🔴 Recording started: {filename}")
+                    return True
+            else:
+                # Stop recording
+                if self.video_writer:
+                    self.video_writer.release()
+                    self.video_writer = None
+                
+                self.recording = False
+                shared_data.update_status({'recording': False})
+                print("⏹️ Recording stopped")
+                return True
+        except Exception as e:
+            print(f"❌ Recording error: {e}")
+        return False
+    
+    def stop_all_systems(self):
+        """Stop all drone systems"""
+        print("🛑 Stopping drone systems...")
+        self.running = False
+        
+        # Stop recording if active
+        if self.recording:
+            self._toggle_recording()
+        
+        # Cleanup Tello
+        if self.tello:
             try:
-                if self.is_connected:
-                    self.tello.send_rc_control(0, 0, 0, 0)  # Stop movement
-                    if self.is_flying:
-                        self.tello.emergency()  # Emergency land
-                        self.is_flying = False
-                        self.send_rc_control = False
-                        self.flight_start_time = None
-                self.broadcast_status()
+                self.tello.streamoff()
+                self.tello.end()
+            except:
+                pass
+        
+        # Cleanup AI models
+        if self.pose:
+            self.pose.close()
+        if self.hands:
+            self.hands.close()
+        
+        pygame.quit()
+        print("✅ Drone systems stopped")
+
+# ==================== WEB SERVER ====================
+class WebServer:
+    """Flask + Socket.IO web server for React frontend"""
+    
+    def __init__(self):
+        if not WEB_IMPORTS_AVAILABLE:
+            raise ImportError("Web server dependencies not available")
+        
+        self.app = Flask(__name__)
+        self.app.config['SECRET_KEY'] = 'drone_web_bridge_secret'
+        
+        # Enable CORS
+        CORS(self.app, 
+            origins="*",
+            methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+            allow_headers=['Content-Type', 'Authorization', 'Access-Control-Allow-Credentials'],
+            supports_credentials=True)
+
+        # Initialize Socket.IO
+        self.socketio = SocketIO(
+            self.app,
+            cors_allowed_origins="*",
+            async_mode='threading',
+            logger=False,
+            engineio_logger=False
+        )
+        
+        self.setup_routes()
+        self.setup_socket_events()
+        
+        print("🌐 Web server initialized")
+    
+    def setup_routes(self):
+        """Setup REST API routes"""
+        
+        @self.app.route('/')
+        def index():
+            return jsonify({
+                'message': 'Drone Web Bridge Server',
+                'status': 'running',
+                'endpoints': {
+                    'status': '/api/status',
+                    'socket': '/socket.io'
+                }
+            })
+
+        @self.app.route('/api/media/list')
+        def list_media_files():
+            """List media files with pagination and filtering"""
+            try:
+                file_type = request.args.get('type', 'images').lower()
+                
+                if file_type == 'images':
+                    directory = Config.SCREENSHOTS_DIR
+                    extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+                elif file_type == 'videos':
+                    directory = Config.RECORDINGS_DIR  
+                    extensions = ['.mp4', '.avi', '.mov', '.mkv']
+                else:
+                    return jsonify({'success': False, 'error': 'Invalid file type'})
+                
+                files = []
+                if os.path.exists(directory):
+                    for filename in os.listdir(directory):
+                        if any(filename.lower().endswith(ext) for ext in extensions):
+                            filepath = os.path.join(directory, filename)
+                            stat = os.stat(filepath)
+                            
+                            files.append({
+                                'filename': filename,
+                                'size': stat.st_size,
+                                'created_at': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                                'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                                'url': f"{Config.MEDIA_BASE_URL}/{filename}",
+                                'file_path': filepath,
+                                'type': file_type[:-1]  # Remove 's' from images/videos
+                            })
+                
+                # Sort by creation time (newest first)
+                files.sort(key=lambda x: x['created_at'], reverse=True)
+                
+                return jsonify({
+                    'success': True,
+                    'files': files,
+                    'count': len(files),
+                    'type': file_type
+                })
+                
             except Exception as e:
-                print(f"❌ Emergency error: {e}")
+                return jsonify({'success': False, 'error': str(e)})
 
-        @self.socketio.on('enable_ml_detection')
-        def handle_enable_ml_detection(data):
-            """Enable/disable ML detection"""
-            self.ml_detection_enabled = data.get('enabled', False)
-            print(f"🤖 ML Detection: {'Enabled' if self.ml_detection_enabled else 'Disabled'}")
-            
-            emit('ml_detection_status', {
-                'enabled': self.ml_detection_enabled,
-                'message': f"ML Detection {'enabled' if self.ml_detection_enabled else 'disabled'}"
+        @self.app.route('/media/<filename>')
+        def serve_media_file(filename):
+            """Serve media files from screenshots or recordings directory"""
+            try:
+                # Try screenshots directory first
+                screenshots_path = os.path.join(Config.SCREENSHOTS_DIR, filename)
+                if os.path.exists(screenshots_path):
+                    return send_file(screenshots_path, as_attachment=False)
+                
+                # Try recordings directory
+                recordings_path = os.path.join(Config.RECORDINGS_DIR, filename) 
+                if os.path.exists(recordings_path):
+                    return send_file(recordings_path, as_attachment=False)
+                
+                return jsonify({'error': 'File not found'}), 404
+                
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+
+        @self.app.route('/download/<filename>')
+        def download_media_file(filename):
+            """Download media files"""
+            try:
+                # Try screenshots directory first
+                screenshots_path = os.path.join(Config.SCREENSHOTS_DIR, filename)
+                if os.path.exists(screenshots_path):
+                    return send_file(screenshots_path, as_attachment=True, download_name=filename)
+                
+                # Try recordings directory
+                recordings_path = os.path.join(Config.RECORDINGS_DIR, filename)
+                if os.path.exists(recordings_path):
+                    return send_file(recordings_path, as_attachment=True, download_name=filename)
+                
+                return jsonify({'error': 'File not found'}), 404
+                
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+
+        @self.app.route('/api/media/delete/<filename>', methods=['DELETE'])
+        def delete_media_file(filename):
+            """Delete media file"""
+            try:
+                # Try screenshots directory first  
+                screenshots_path = os.path.join(Config.SCREENSHOTS_DIR, filename)
+                if os.path.exists(screenshots_path):
+                    os.remove(screenshots_path)
+                    return jsonify({'success': True, 'message': f'File {filename} deleted'})
+                
+                # Try recordings directory
+                recordings_path = os.path.join(Config.RECORDINGS_DIR, filename)
+                if os.path.exists(recordings_path):
+                    os.remove(recordings_path)
+                    return jsonify({'success': True, 'message': f'File {filename} deleted'})
+                
+                return jsonify({'success': False, 'error': 'File not found'}), 404
+                
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @self.app.route('/api/status')
+        def get_status():
+            return jsonify({
+                'success': True,
+                'data': shared_data.get_status()
             })
 
-        @self.socketio.on('enable_auto_capture')
-        def handle_enable_auto_capture(data):
-            """Enable/disable auto capture"""
-            self.auto_capture_enabled = data.get('enabled', False)
-            print(f"📸 Auto Capture: {'Enabled' if self.auto_capture_enabled else 'Disabled'}")
-            
-            emit('auto_capture_status', {
-                'enabled': self.auto_capture_enabled,
-                'message': f"Auto Capture {'enabled' if self.auto_capture_enabled else 'disabled'}"
-            })
-
-        @self.socketio.on('toggle_recording')
-        def handle_toggle_recording(data):
-            """Toggle video recording"""
-            self.is_recording = data.get('recording', False)
-            print(f"🎥 Recording: {'Started' if self.is_recording else 'Stopped'}")
-            
-            emit('recording_status', {
-                'recording': self.is_recording,
-                'message': f"Recording {'started' if self.is_recording else 'stopped'}"
-            })
+    def setup_socket_events(self):
+        """Setup Socket.IO event handlers"""
+        
+        @self.socketio.on('connect')
+        def handle_connect():
+            print(f"🔗 Client connected: {request.sid}")
+            # Send current status
+            emit('tello_status', shared_data.get_status())
+        
+        @self.socketio.on('disconnect')
+        def handle_disconnect():
+            print(f"🔌 Client disconnected: {request.sid}")
+        
+        @self.socketio.on('connect_tello')
+        def handle_connect_tello():
+            """Handle Tello connection request"""
+            # Tello should already be connected in integrated mode
+            status = shared_data.get_status()
+            emit('tello_status', status)
+        
+        @self.socketio.on('disconnect_tello')
+        def handle_disconnect_tello():
+            """Handle Tello disconnection request"""
+            shared_data.add_command({'type': 'emergency'})
+            emit('tello_status', {'connected': False, 'flying': False})
 
         @self.socketio.on('get_media_files')
         def handle_get_media_files(data):
-            """Get media files from screenshots directory - ALWAYS WORKS"""
+            """Handle request for media files list"""
             try:
-                file_type = data.get('type', 'images')
+                file_type = data.get('type', 'images').lower()
                 
-                # Always scan directory regardless of drone connection
                 if file_type == 'images':
-                    files = self.scan_media_directory('images')
+                    directory = Config.SCREENSHOTS_DIR
+                    extensions = ['.jpg', '.jpeg', '.png', '.bmp']
                 elif file_type == 'videos':
-                    files = self.scan_media_directory('videos')
+                    directory = Config.RECORDINGS_DIR
+                    extensions = ['.mp4', '.avi', '.mov', '.mkv']
                 else:
-                    files = self.scan_media_directory('all')
+                    emit('media_files_response', {'success': False, 'error': 'Invalid file type'})
+                    return
                 
-                print(f"📁 Scanned {len(files)} {file_type} files")
+                files = []
+                if os.path.exists(directory):
+                    for filename in os.listdir(directory):
+                        if any(filename.lower().endswith(ext) for ext in extensions):
+                            filepath = os.path.join(directory, filename)
+                            stat = os.stat(filepath)
+                            
+                            files.append({
+                                'filename': filename,
+                                'size': stat.st_size,
+                                'created_at': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                                'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                                'url': f"{Config.MEDIA_BASE_URL}/{filename}",
+                                'file_path': filepath,
+                                'type': file_type[:-1]
+                            })
+                
+                # Sort by creation time (newest first)
+                files.sort(key=lambda x: x['created_at'], reverse=True)
                 
                 emit('media_files_response', {
                     'success': True,
@@ -623,36 +1329,7 @@ class FrontEnd(object):
                 })
                 
             except Exception as e:
-                print(f"Error getting media files: {e}")
-                emit('media_files_response', {
-                    'success': False,
-                    'error': str(e),
-                    'files': []
-                })
-
-        @self.socketio.on('download_media')
-        def handle_download_media(data):
-            """Handle media file download"""
-            try:
-                filename = data.get('filename')
-                if not filename:
-                    return
-                
-                filepath = os.path.join(self.screenshot_dir, filename)
-                if os.path.exists(filepath):
-                    print(f"📥 Download requested: {filename}")
-                    emit('download_ready', {
-                        'success': True,
-                        'filename': filename,
-                        'url': f'http://localhost:5000/download/{filename}'
-                    })
-                else:
-                    emit('download_ready', {
-                        'success': False,
-                        'error': 'File not found'
-                    })
-            except Exception as e:
-                print(f"Download error: {e}")
+                emit('media_files_response', {'success': False, 'error': str(e)})
 
         @self.socketio.on('delete_media')
         def handle_delete_media(data):
@@ -660,643 +1337,447 @@ class FrontEnd(object):
             try:
                 filename = data.get('filename')
                 if not filename:
+                    emit('media_deleted', {'success': False, 'error': 'Filename required'})
                     return
                 
-                filepath = os.path.join(self.screenshot_dir, filename)
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                    print(f"🗑️ Deleted file: {filename}")
-                    emit('media_deleted', {
+                # Try screenshots directory first
+                screenshots_path = os.path.join(Config.SCREENSHOTS_DIR, filename)
+                if os.path.exists(screenshots_path):
+                    os.remove(screenshots_path)
+                    emit('media_deleted', {'success': True, 'filename': filename})
+                    return
+                
+                # Try recordings directory
+                recordings_path = os.path.join(Config.RECORDINGS_DIR, filename)
+                if os.path.exists(recordings_path):
+                    os.remove(recordings_path)
+                    emit('media_deleted', {'success': True, 'filename': filename})
+                    return
+                
+                emit('media_deleted', {'success': False, 'error': 'File not found'})
+                
+            except Exception as e:
+                emit('media_deleted', {'success': False, 'error': str(e)})
+
+        @self.socketio.on('download_media')
+        def handle_download_media(data):
+            """Handle media file download preparation"""
+            try:
+                filename = data.get('filename')
+                if not filename:
+                    emit('download_ready', {'success': False, 'error': 'Filename required'})
+                    return
+                
+                # Check if file exists and prepare download URL
+                screenshots_path = os.path.join(Config.SCREENSHOTS_DIR, filename)
+                recordings_path = os.path.join(Config.RECORDINGS_DIR, filename)
+                
+                if os.path.exists(screenshots_path) or os.path.exists(recordings_path):
+                    download_url = f"http://{Config.WEB_HOST}:{Config.WEB_PORT}/download/{filename}"
+                    emit('download_ready', {
                         'success': True,
+                        'url': download_url,
                         'filename': filename
                     })
                 else:
-                    emit('media_deleted', {
-                        'success': False,
-                        'error': 'File not found'
-                    })
+                    emit('download_ready', {'success': False, 'error': 'File not found'})
+                    
             except Exception as e:
-                print(f"Delete error: {e}")
-                emit('media_deleted', {
-                    'success': False,
-                    'error': str(e)
-                })
+                emit('download_ready', {'success': False, 'error': str(e)})
 
+        @self.socketio.on('debug_media_system')
+        def handle_debug_media():
+            """Handle debug request for media system"""
+            try:
+                debug_info = {
+                    'directories': {
+                        'screenshots': Config.SCREENSHOTS_DIR,
+                        'recordings': Config.RECORDINGS_DIR,
+                        'screenshots_exists': os.path.exists(Config.SCREENSHOTS_DIR),
+                        'recordings_exists': os.path.exists(Config.RECORDINGS_DIR)
+                    },
+                    'file_counts': {
+                        'screenshots': len([f for f in os.listdir(Config.SCREENSHOTS_DIR) 
+                                        if os.path.isfile(os.path.join(Config.SCREENSHOTS_DIR, f))]) 
+                                    if os.path.exists(Config.SCREENSHOTS_DIR) else 0,
+                        'recordings': len([f for f in os.listdir(Config.RECORDINGS_DIR) 
+                                        if os.path.isfile(os.path.join(Config.RECORDINGS_DIR, f))]) 
+                                    if os.path.exists(Config.RECORDINGS_DIR) else 0
+                    },
+                    'permissions': {
+                        'screenshots_readable': os.access(Config.SCREENSHOTS_DIR, os.R_OK) if os.path.exists(Config.SCREENSHOTS_DIR) else False,
+                        'recordings_readable': os.access(Config.RECORDINGS_DIR, os.R_OK) if os.path.exists(Config.RECORDINGS_DIR) else False
+                    }
+                }
+                
+                emit('debug_media_response', {'debug_info': debug_info})
+                
+            except Exception as e:
+                emit('debug_media_response', {'debug_info': {'error': str(e)}})
+
+        @self.socketio.on('takeoff')
+        def handle_takeoff():
+            """Handle takeoff command"""
+            shared_data.add_command({'type': 'takeoff'})
+            emit('drone_action', {'action': 'takeoff', 'success': True})
+        
+        @self.socketio.on('land')
+        def handle_land():
+            """Handle land command"""
+            shared_data.add_command({'type': 'land'})
+            emit('drone_action', {'action': 'land', 'success': True})
+
+        @self.socketio.on('enable_change_keyboard')
+        def handle_enable_change_keyboard(data):
+            """Handle keyboard mode change"""
+            enabled = data.get('enabled', False)
+            
+            # Update shared data status
+            shared_data.update_status({'keyboard_enabled': enabled})
+            
+            # Add command to drone system
+            shared_data.add_command({
+                'type': 'enable_change_keyboard',
+                'data': {'enabled': enabled}
+            })
+            
+            # Send confirmation back to frontend
+            emit('keyboard_mode_updated', {
+                'enabled': enabled,
+                'mode': 'Mode 2: Arrow Movement' if enabled else 'Mode 1: WASD Movement'
+            })
+            
+            print(f"🎮 Keyboard mode changed to: {'Mode 2 (Arrow Movement)' if enabled else 'Mode 1 (WASD Movement)'}")
+                
+        @self.socketio.on('emergency_land')
+        def handle_emergency():
+            """Handle emergency command"""
+            shared_data.add_command({'type': 'emergency'})
+            emit('drone_action', {'action': 'emergency', 'success': True})
+        @self.socketio.on('emergency_auto')
+        def handle_emergencyAuto():
+            """Handle emergency command"""
+            shared_data.add_command({'type': 'emergency'})
+            emit('tello_status', {'connected': False, 'flying': False})
+        
+        @self.socketio.on('move_control')
+        def handle_move_control(data):
+            """Handle movement control"""
+            shared_data.add_command({
+                'type': 'move_control',
+                'data': {
+                    'left_right': data.get('left_right', 0),
+                    'for_back': data.get('for_back', 0),
+                    'up_down': data.get('up_down', 0),
+                    'yaw': data.get('yaw', 0)
+                }
+            })
+        
+        @self.socketio.on('stop_movement')
+        def handle_stop_movement():
+            """Handle stop movement command"""
+            shared_data.add_command({'type': 'stop_movement'})
+        
+        @self.socketio.on('set_speed')
+        def handle_set_speed(data):
+            """Handle speed setting"""
+            speed = data.get('speed', 20)
+            shared_data.add_command({
+                'type': 'set_speed',
+                'data': {'speed': speed}
+            })
+            emit('speed_update', {'speed': speed})
+        
+        @self.socketio.on('flip_command')
+        def handle_flip(data):
+            """Handle flip command"""
+            direction = data.get('direction', 'f')
+            shared_data.add_command({
+                'type': 'flip',
+                'data': {'direction': direction}
+            })
+            emit('drone_action', {'action': f'flip_{direction}', 'success': True})
+        
+        @self.socketio.on('enable_ml_detection')
+        def handle_enable_ml_detection(data):
+            """Handle ML detection toggle"""
+            enabled = data.get('enabled', True)
+            shared_data.add_command({
+                'type': 'enable_ml_detection',
+                'data': {'enabled': enabled}
+            })
+            emit('ml_detection_status', {'enabled': enabled})
+
+        @self.socketio.on('enable_auto_capture')
+        def handle_enable_auto_capture(data):
+            """Handle auto capture toggle"""
+            enabled = data.get('enabled', True)
+            shared_data.update_status({'auto_capture_enabled': enabled})
+            emit('auto_capture_status', {'enabled': enabled})
+        
         @self.socketio.on('manual_screenshot')
         def handle_manual_screenshot():
-            """Take manual screenshot from React client"""
-            print("📸 Manual screenshot request from React client")
+            """Handle manual screenshot request"""
+            shared_data.add_command({'type': 'manual_screenshot'})
             
-            if self.last_frame is not None:
-                with self.frame_lock:
-                    frame_copy = self.last_frame.copy()
-                processed_frame, _, humans_count = self.process_human_detection(frame_copy)
-                success = self.save_screenshot(processed_frame, humans_count, "web")
-                
-                emit('screenshot_result', {
-                    'success': success,
-                    'count': self.screenshot_count,
-                    'humans_detected': humans_count
-                })
-            else:
-                emit('screenshot_result', {
-                    'success': False,
-                    'message': 'No video frame available'
-                })
+            # Simulate screenshot result
+            current_count = shared_data.get_status().get('screenshot_count', 0)
+            emit('screenshot_result', {
+                'success': True,
+                'count': current_count + 1,
+                'filename': f'screenshot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.jpg'
+            })
+        
+        @self.socketio.on('toggle_recording')
+        def handle_toggle_recording(data):
+            """Handle recording toggle"""
+            recording = data.get('recording', False)
+            shared_data.add_command({'type': 'toggle_recording'})
+            emit('recording_status', {'recording': recording})
+        
+        @self.socketio.on('start_stream')
+        def handle_start_stream():
+            """Handle video stream start"""
+            emit('stream_status', {'streaming': True})
+            # Start sending video frames
+            self.start_video_stream()
+        
+        @self.socketio.on('start_autonomous_mode')
+        def handle_start_autonomous():
+            """Handle autonomous mode start"""
+            shared_data.add_command({'type': 'start_autonomous_mode'})
+            emit('drone_action', {'action': 'autonomous_start', 'success': True})
+            emit('autonomous_status', {'enabled': True})
+            print("🤖 Autonomous mode start command sent")
+        
+        @self.socketio.on('stop_autonomous_mode')
+        def handle_stop_autonomous():
+            """Handle autonomous mode stop"""
+            shared_data.add_command({'type': 'stop_autonomous_mode'})
+            emit('drone_action', {'action': 'autonomous_stop', 'success': True})
+            emit('autonomous_status', {'enabled': False})
+            print("🤖 Autonomous mode stop command sent")
 
-    def _enhance_socket_events(self):
-        """Enhanced socket events"""
-        pass  # Additional enhancements can be added here
 
-    def connect_tello(self):
-        """Connect to Tello drone"""
-        try:
-            if not self.is_connected and not self.disconnect_requested:
-                print("🔗 Connecting to Tello...")
-                self.tello.connect()
-                
-                battery = self.get_battery()
-                print(f"✅ Connected! Battery: {battery}%")
-                
-                self.tello.streamoff()
-                self.tello.streamon()
-                
-                self.is_connected = True
-                self.tello.set_speed(self.speed)
-                
-                return True
-            return True
-        except Exception as e:
-            print(f"❌ Failed to connect to Tello: {e}")
-            self.is_connected = False
-            return False
-
-    def disconnect_tello(self):
-        """Disconnect from Tello drone"""
-        try:
-            if self.is_connected:
-                print("🔌 Disconnecting from Tello...")
-                
-                if self.is_flying:
-                    self.tello.land()
-                    self.is_flying = False
-                    self.send_rc_control = False
-                    self.flight_start_time = None
-                
-                # Stop streaming
-                self.tello.streamoff()
-                self.tello.end()
-                self.is_connected = False
-                
-                # Clear frame
-                with self.frame_lock:
-                    self.last_frame = None
-                
-                self.socketio.emit('clear_video_frame')
-                print("🔌 Tello disconnected successfully")
-            return True
-        except Exception as e:
-            print(f"❌ Error disconnecting Tello: {e}")
-            return False
-
-    def takeoff_drone(self):
-        """Takeoff command"""
-        if self.is_connected and not self.is_flying and not self.disconnect_requested:
-            try:
-                self.tello.takeoff()
-                self.is_flying = True
-                self.send_rc_control = True
-                self.flight_start_time = time.time()
-                print("✅ Takeoff successful")
-                
-                self.socketio.emit('drone_action', {
-                    'action': 'takeoff',
-                    'success': True
-                })
-                self.broadcast_status()
-                return True
-            except Exception as e:
-                print(f"❌ Takeoff failed: {e}")
-                self.socketio.emit('drone_action', {
-                    'action': 'takeoff',
-                    'success': False,
-                    'error': str(e)
-                })
-                return False
-        return False
-
-    def land_drone(self):
-        """Land command"""
-        if self.is_connected and self.is_flying:
-            try:
-                self.tello.land()
-                self.is_flying = False
-                self.send_rc_control = False
-                self.flight_start_time = None
-                print("✅ Landing successful")
-                
-                self.socketio.emit('drone_action', {
-                    'action': 'land',
-                    'success': True
-                })
-                self.broadcast_status()
-                return True
-            except Exception as e:
-                print(f"❌ Landing failed: {e}")
-                self.socketio.emit('drone_action', {
-                    'action': 'land',
-                    'success': False,
-                    'error': str(e)
-                })
-                return False
-        return False
-
-    def get_battery(self):
-        """Get battery level"""
-        if self.is_connected:
-            try:
-                return self.tello.get_battery()
-            except:
-                return 0
-        return 0
-
-    def get_flight_time(self):
-        """Get flight time in seconds"""
-        if self.flight_start_time and self.is_flying:
-            return int(time.time() - self.flight_start_time)
-        return 0
-
-    def broadcast_status(self):
-        """Broadcast status to all web clients"""
-        try:
-            status = {
-                'connected': self.is_connected,
-                'flying': self.is_flying,
-                'battery': self.get_battery(),
-                'flight_time': self.get_flight_time(),
-                'speed': self.current_speed_display
-            }
-            self.socketio.emit('tello_status', status)
-        except Exception as e:
-            print(f"Broadcast status error: {e}")
-
-    def _frame_generator(self):
-        """Generator for streaming frames to browser (for Flask route)"""
-        while not self.should_stop:
-            with self.frame_lock:
-                if self.last_frame is None:
+    def start_video_stream(self):
+        """Start video streaming to clients"""
+        def video_stream_worker():
+            while True:
+                try:
+                    frame_base64 = shared_data.get_frame_base64()
+                    if frame_base64:
+                        self.socketio.emit('video_frame', {
+                            'frame': frame_base64,
+                            'timestamp': time.time()
+                        })
+                    
+                    time.sleep(1/30)  # 30 FPS
+                except Exception as e:
+                    print(f"❌ Video stream error: {e}")
                     time.sleep(0.1)
-                    continue
-                
-                frame_to_send = self.last_frame.copy()
-                frame_bgr = cv2.cvtColor(frame_to_send, cv2.COLOR_RGB2BGR)
-                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 60]
-                ret, buffer = cv2.imencode('.jpg', frame_bgr, encode_params)
-                
-                if not ret:
-                    continue
+        
+        # Start video streaming in separate thread
+        video_thread = threading.Thread(target=video_stream_worker, daemon=True)
+        video_thread.start()
+    
+    def start_status_updates(self):
+        """Start periodic status updates"""
+        def status_update_worker():
+            while True:
+                try:
+                    status = shared_data.get_status()
+                    self.socketio.emit('tello_status', status)
+                    self.socketio.emit('telemetry_update', status.get('telemetry', {}))
                     
-                frame_bytes = buffer.tobytes()
-                yield (b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    # Send autonomous status updates
+                    if status.get('autonomous_mode', False):
+                        self.socketio.emit('autonomous_update', {
+                            'enabled': status.get('autonomous_mode', False),
+                            'action': status.get('autonomous_action', 'idle'),
+                            'red_detected': status.get('red_detected', False),
+                            'pixel_count': status.get('pixel_count', 0)
+                        })
                     
-                time.sleep(1 / FPS)
-
-    def _send_frame_to_react(self, frame):
-        """Send frame to React clients via Socket.IO"""
-        if self.socket_streaming and self.connected_clients > 0:
-            try:
-                frame_resized = cv2.resize(frame, (640, 480))
-                frame_bgr2 = cv2.cvtColor(frame_resized, cv2.COLOR_RGB2BGR)
-                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 60]
-                ret, buffer = cv2.imencode('.jpg', frame_bgr2, encode_params)
-                if ret:
-                    frame_base64 = base64.b64encode(buffer).decode('utf-8')
-                    self.socketio.emit('video_frame', {'frame': frame_base64})
-            except Exception as e:
-                print(f"Error sending frame to React: {e}")
-
-    def save_screenshot(self, frame, humans_count, source="auto"):
-        """Save screenshot with timestamp and human count"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            source_prefix = "manual" if source in ["joystick", "keyboard", "web"] else "auto"
-            filename = f"{source_prefix}_human_detected_{timestamp}_{humans_count}persons_{self.screenshot_count:04d}.jpg"
-            filepath = os.path.join(self.screenshot_dir, filename)
-            
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            success = cv2.imwrite(filepath, frame)
-            
-            if success:
-                self.screenshot_count += 1
-                print(f"Screenshot saved ({source}): {filename}")
-                
-                self.socketio.emit('screenshot_result', {
-                    'success': True,
-                    'count': self.screenshot_count,
-                    'filename': filename
-                })
-                return True
-            else:
-                print(f"Failed to save screenshot: {filename}")
-                self.socketio.emit('screenshot_result', {
-                    'success': False,
-                    'count': self.screenshot_count
-                })
-                return False
-        except Exception as e:
-            print(f"Screenshot error: {e}")
-            return False
-
-    def get_joystick_input(self):
-        if not self.joystick:
-            return
-
-        speed = 50
-        rotate = 80
-
-        axis_lr = self.joystick.get_axis(0)
-        axis_fb = self.joystick.get_axis(1)
-        axis_yv = self.joystick.get_axis(2)
-        axis_ud = self.joystick.get_axis(3)
-
-        self.left_right_velocity = int(axis_lr * speed)
-        self.for_back_velocity = int(-axis_fb * speed)
-        self.up_down_velocity = int(-axis_ud * speed)
-        self.yaw_velocity = int(axis_yv * rotate)
-
-        if self.joystick.get_button(0):
-            if not self.send_rc_control:
-                self.takeoff_drone()
-                time.sleep(0.5)
-
-        if self.joystick.get_button(1):
-            if self.send_rc_control:
-                self.land_drone()
-                time.sleep(0.5)
-
-        current_screenshot_button_state = self.joystick.get_button(2)
-        if current_screenshot_button_state and not self.last_joystick_screenshot_button_state:
-            self.joystick_screenshot_requested = True
-            print("Joystick screenshot button pressed!")
+                    time.sleep(2)  # Update every 2 seconds
+                except Exception as e:
+                    print(f"❌ Status update error: {e}")
+                    time.sleep(1)
         
-        self.last_joystick_screenshot_button_state = current_screenshot_button_state
-
-        if self.joystick.get_button(3):
-            self.joystick_screenshot_requested = True
-            print("Alternative joystick screenshot button pressed!")
-            time.sleep(0.2)
-
-    def process_human_detection(self, frame):
-        """Process human detection and return processed frame with detection info"""
-        output_frame = frame.copy()
-        human_detected = False
-        human_boxes = []
-
-        if self.yolo_model and self.ml_detection_enabled:
-            try:
-                results = self.yolo_model(frame, verbose=False)
-
-                for result in results:
-                    boxes = result.boxes
-                    if boxes is not None:
-                        for box in boxes:
-                            class_id = int(box.cls[0])
-                            confidence = float(box.conf[0])
-
-                            if class_id == 0 and confidence > 0.5:
-                                human_detected = True
-
-                                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                                human_boxes.append((x1, y1, x2, y2, confidence))
-
-                                cv2.rectangle(output_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-                                center_x = (x1 + x2) // 2
-                                center_y = (y1 + y2) // 2
-                                cv2.circle(output_frame, (center_x, center_y), 8, (0, 255, 0), cv2.FILLED)
-
-                                confidence_percentage = confidence * 100
-                                label = f"Human: {confidence_percentage:.0f}%"
-                                cv2.putText(output_frame, label, (x1, y1 - 10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-                if human_detected:
-                    pose_results = self.pose.process(frame)
-                    hands_results = self.hands.process(frame)
-
-                    if hands_results.multi_hand_landmarks:
-                        for hand_landmarks in hands_results.multi_hand_landmarks:
-                            self.mp_drawing.draw_landmarks(
-                                output_frame,
-                                hand_landmarks,
-                                self.mp_hands.HAND_CONNECTIONS,
-                                self.mp_drawing_styles.get_default_hand_landmarks_style(),
-                                self.mp_drawing_styles.get_default_hand_connections_style()
-                            )
-
-                    if pose_results.pose_landmarks:
-                        self.mp_drawing.draw_landmarks(
-                            output_frame,
-                            pose_results.pose_landmarks,
-                            self.mp_pose.POSE_CONNECTIONS,
-                            landmark_drawing_spec=self.mp_drawing_styles.get_default_pose_landmarks_style()
-                        )
-            except Exception as e:
-                print(f"Human detection error: {e}")
-
-        return output_frame, human_detected, len(human_boxes)
-
-    def handle_auto_screenshot(self, output_frame, human_detected, humans_count):
-        """Handle auto screenshot countdown logic"""
-        if not self.auto_capture_enabled:
-            return
-            
-        current_time = time.time()
+        # Start status updates in separate thread
+        status_thread = threading.Thread(target=status_update_worker, daemon=True)
+        status_thread.start()
+    
+    def run(self):
+        """Run the web server"""
+        print(f"🚀 Starting web server on {Config.WEB_HOST}:{Config.WEB_PORT}")
         
-        if human_detected and humans_count >= 1:
-            if not self.last_human_detected and not self.countdown_active:
-                self.countdown_active = True
-                self.countdown_start_time = current_time
-                print(f"Human detected! Starting 3-second countdown...")
-            
-            if self.countdown_active:
-                elapsed_time = current_time - self.countdown_start_time
-                
-                if elapsed_time >= self.countdown_duration:
-                    self.save_screenshot(output_frame, humans_count, "auto")
-                    self.last_screenshot_time = current_time
-                    self.countdown_active = False
-                    print("Countdown completed! Screenshot taken.")
-        else:
-            if self.countdown_active:
-                self.countdown_active = False
-                print("Human detection lost! Countdown cancelled.")
+        # Start video streaming and status updates
+        self.start_video_stream()
+        self.start_status_updates()
         
-        self.last_human_detected = human_detected
-
-    def run_web_server(self):
-        """Run Flask server with Socket.IO in separate thread"""
-        print("Starting Flask server with Socket.IO...")
-        print("React app will run on: http://localhost:5173")
-        print("Backend Socket.IO server on: http://localhost:5000")
-        print("Browser HTML stream: http://localhost:5000")
-        
+        # Run the server
         self.socketio.run(
-            self.app, 
-            host='127.0.0.1',
-            port=5000, 
-            debug=False, 
-            use_reloader=False,
+            self.app,
+            host=Config.WEB_HOST,
+            port=Config.WEB_PORT,
+            debug=Config.WEB_DEBUG,
             allow_unsafe_werkzeug=True
         )
 
-    def display_waiting_screen(self):
-        """Display waiting for connection screen"""
-        self.screen.fill([20, 20, 40])
-        
-        font_large = pygame.font.SysFont("Arial", 36)
-        font_medium = pygame.font.SysFont("Arial", 24)
-        
-        title_text = font_large.render("SARVIO-X", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(480, 200))
-        self.screen.blit(title_text, title_rect)
-        
-        waiting_text = font_medium.render("Waiting for Tello Connection...", True, (200, 200, 200))
-        waiting_rect = waiting_text.get_rect(center=(480, 280))
-        self.screen.blit(waiting_text, waiting_rect)
-        
-        instruction_text = font_medium.render("Open http://localhost:5173 and click 'Connect'", True, (150, 150, 150))
-        instruction_rect = instruction_text.get_rect(center=(480, 320))
-        self.screen.blit(instruction_text, instruction_rect)
-        
-        server_status = "✅ Backend Server Running" if self.connected_clients >= 0 else "❌ Backend Server Error"
-        server_text = self.font.render(server_status, True, (0, 255, 0) if self.connected_clients >= 0 else (255, 0, 0))
-        self.screen.blit(server_text, (10, 650))
-        
-        if self.connected_clients > 0:
-            clients_text = self.font.render(f"📱 Web Clients Connected: {self.connected_clients}", True, (0, 255, 255))
-            self.screen.blit(clients_text, (10, 680))
-
-    def run(self):
-        flask_thread = threading.Thread(target=self.run_web_server, daemon=True)
-        flask_thread.start()
-        
-        print("🔌 Waiting for connection command from web interface...")
-        print("📱 Open http://localhost:5173 and click 'Connect' button")
-        
-        self.socket_streaming = True
-
-        frame_read = None
-        should_stop = False
-        battery_counter = 0
-
-        while not should_stop:
-            for event in pygame.event.get():
-                if event.type == pygame.USEREVENT + 1:
-                    self.update()
-                elif event.type == pygame.QUIT:
-                    should_stop = True
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        should_stop = True
-                    else:
-                        self.keydown(event.key)
-                elif event.type == pygame.KEYUP:
-                    self.keyup(event.key)
-
-            if not self.is_connected:
-                self.display_waiting_screen()
-                pygame.display.update()
-                time.sleep(0.1)
-                continue
-                
-            if self.is_connected and frame_read is None:
-                frame_read = self.tello.get_frame_read()
-                print("📹 Video stream initialized")
-
-            if frame_read and frame_read.stopped:
-                break
-
-            self.get_joystick_input()
-            self.screen.fill([0, 0, 0])
-
-            frame = frame_read.frame
-            if frame is None:
-                continue
-
-            curr_time = time.time()
-            self.fps = 1 / (curr_time - self.prev_time) if curr_time != self.prev_time else 0
-            self.prev_time = curr_time
-
-            frame = cv2.resize(frame, (960, 720))
-            output_frame, human_detected, humans_count = self.process_human_detection(frame)
-            self.handle_auto_screenshot(output_frame, human_detected, humans_count)
-
-            if self.joystick_screenshot_requested:
-                self.save_screenshot(output_frame, humans_count, "joystick")
-                cv2.putText(output_frame, "JOYSTICK SCREENSHOT SAVED!", (10, 250),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-                self.joystick_screenshot_requested = False
-
-            battery = self.get_battery()
-            cv2.putText(output_frame, f"Battery: {battery}%", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(output_frame, f"FPS: {self.fps:.1f}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(output_frame, f"Speed: {self.current_speed_display} cm/s", (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
-            if humans_count > 0:
-                cv2.putText(output_frame, f"Humans Detected: {humans_count}", (10, 120),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-            cv2.putText(output_frame, f"Screenshots: {self.screenshot_count}", (10, 150),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
-            with self.frame_lock:
-                self.last_frame = output_frame.copy()
-            
-            self._send_frame_to_react(output_frame)
-
-            battery_counter += 1
-            if battery_counter % 30 == 0 and self.connected_clients > 0:
-                self.socketio.emit('battery_update', {'battery': battery})
-                self.broadcast_status()
-
-            frame_rgb = np.rot90(output_frame)
-            frame_rgb = np.flipud(frame_rgb)
-            frame_surface = pygame.surfarray.make_surface(frame_rgb)
-            self.screen.blit(frame_surface, (0, 0))
-
-            status_text = self.font.render("T=Takeoff, L=Land, P=Screenshot, ESC=Quit", True, (255, 255, 255))
-            self.screen.blit(status_text, (10, 10))
-            
-            react_text = self.font.render(f"React Clients: {self.connected_clients}", True, (255, 255, 0))
-            self.screen.blit(react_text, (10, 40))
-
-            pygame.display.update()
-            time.sleep(1 / FPS)
-
-        self.should_stop = True
-        if self.is_connected:
-            self.tello.streamoff()
-            self.tello.end()
-        self.pose.close()
-        self.hands.close()
-        print(f"Done! Total screenshots taken: {self.screenshot_count}")
-
-    def keydown(self, key):
-        """ Update velocities based on key pressed """
-        if key == pygame.K_w:
-            self.for_back_velocity = S
-        elif key == pygame.K_s:
-            self.for_back_velocity = -S
-        elif key == pygame.K_a:
-            self.left_right_velocity = -S
-        elif key == pygame.K_d:
-            self.left_right_velocity = S
-        elif key == pygame.K_UP:
-            self.up_down_velocity = S
-        elif key == pygame.K_p:
-            if self.last_frame is not None:
-                with self.frame_lock:
-                    frame_copy = self.last_frame.copy()
-                output_frame, _, humans_count = self.process_human_detection(frame_copy)
-                self.save_screenshot(output_frame, humans_count, "keyboard")
-                print("Manual keyboard screenshot taken!")
-        elif key == pygame.K_DOWN:
-            self.up_down_velocity = -S
-        elif key == pygame.K_LEFT:
-            self.yaw_velocity = -S
-        elif key == pygame.K_RIGHT:
-            self.yaw_velocity = S
-        elif key == pygame.K_q:
-            pygame.quit()
-            sys.exit()
-            if self.is_connected:
-                self.tello.streamoff()
-                self.tello.end()
-            self.pose.close()
-            self.hands.close()
-            print(f"Done! Total screenshots taken: {self.screenshot_count}")
-            sys.exit()
-
-    def keyup(self, key):
-        """ Update velocities based on key released """
-        if key == pygame.K_w or key == pygame.K_s:
-            self.for_back_velocity = 0
-        elif key == pygame.K_d or key == pygame.K_a:
-            self.left_right_velocity = 0
-        elif key == pygame.K_UP or key == pygame.K_DOWN:
-            self.up_down_velocity = 0
-        elif key == pygame.K_RIGHT or key == pygame.K_LEFT:
-            self.yaw_velocity = 0
-        elif key == pygame.K_t:
-            self.takeoff_drone()
-        elif key == pygame.K_l:
-            self.land_drone()
-
-    def update(self):
-        """ Update routine. Send velocities to Tello. """
-        if self.send_rc_control and not self.disconnect_requested:
-            self.tello.send_rc_control(self.left_right_velocity, self.for_back_velocity,
-                self.up_down_velocity, self.yaw_velocity)
-
-
-def main():
-    frontend = TelloControllerStreamer()
+# ==================== MAIN APPLICATION ====================
+class DroneWebBridge:
+    """Main application class that orchestrates everything"""
     
-    print("=" * 60)
-    print("SARVIO-X - Tello Drone Control with Dual Interface")
-    print("=" * 60)
-    print("Features:")
-    print("- Pygame window for local control and display")
-    print("- React web interface with real-time streaming")
-    print("- YOLOv8 + MediaPipe human detection")
-    print("- Smart auto screenshot with 3-second countdown")
-    print("- Dual control: Keyboard/Joystick + Web interface")
-    print("- Flask-SocketIO backend on port 5000")
-    print("- Enhanced Media Gallery with file management")
-    print("=" * 60)
-    print("Pygame Controls:")
-    print("- Keyboard: Arrow keys=move, W/S=up/down, A/D=rotate")
-    print("- T=takeoff, L=land, P=screenshot, ESC=quit")
-    print("- Joystick: Move drone, A=takeoff, B=land, X/Y=screenshot")
-    print("=" * 60)
-    print("Web Interface:")
-    print("- React app: http://localhost:5173")
-    print("- Backend API: http://localhost:5000")
-    print("- Real-time video streaming with ML detection")
-    print("- Remote control via web browser")
-    print("- Enhanced Media Gallery with search & stats")
-    print("=" * 60)
-    print("API Endpoints:")
-    print("- GET /api/media/list?type=images|videos|all")
-    print("- GET /api/media/stats")
-    print("- GET /media/<filename> - Serve media files")
-    print("- GET /download/<filename> - Download media files")
-    print("=" * 60)
-    print("⚠️  IMPORTANT: Drone will NOT auto-connect!")
-    print("   Use web interface to connect manually")
-    print("=" * 60)
+    def __init__(self, mode='integrated'):
+        self.mode = mode
+        self.drone_system = None
+        self.web_server = None
+        self.running = True
+        
+        # Setup signal handlers
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+
+        print(f"🚀 Drone Web Bridge starting in {mode} mode")
+    
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        print(f"\n🛑 Received signal {signum}, shutting down...")
+        self.running = False
+        self.cleanup()
+        sys.exit(0)
+    
+    def start_backend_only(self):
+        """Start only web server (for testing without drone)"""
+        if not WEB_IMPORTS_AVAILABLE:
+            print("❌ Web server dependencies not available")
+            return False
+        
+        try:
+            # Initialize with mock data
+            shared_data.update_status({
+                'connected': False,
+                'flying': False,
+                'battery': 0,
+                'speed': 20,
+                "height": 0,
+                "temperature": 0,
+            })
+            
+            # Start web server
+            self.web_server = WebServer()
+            print("🌐 Backend-only mode: Web server ready")
+            print(f"📍 Access at: http://{Config.WEB_HOST}:{Config.WEB_PORT}")
+            print("⚠️ Drone system not initialized - limited functionality")
+            
+            self.web_server.run()
+            
+        except Exception as e:
+            print(f"❌ Failed to start backend: {e}")
+            return False
+    
+    def start_drone_only(self):
+        """Start only drone system (original droneV7.py behavior)"""
+        if not DRONE_IMPORTS_AVAILABLE:
+            print("❌ Drone dependencies not available")
+            return False
+        
+        try:
+            # Initialize drone system in standalone mode
+            self.drone_system = DroneSystem()
+            self.drone_system.web_integration_enabled = False
+            
+            if not self.drone_system.initialize_all_systems():
+                print("❌ Failed to initialize drone systems")
+                return False
+            
+            # Start drone threads
+            self.drone_system.start_drone_threads()
+            
+            print("🚁 Drone-only mode: Running original droneV7.py behavior")
+            print("🎮 Use pygame interface for control")
+            
+            # Run original main loop (simplified)
+            try:
+                while self.running:
+                    # Handle pygame events if not in headless mode
+                    if self.drone_system.screen:
+                        for event in pygame.event.get():
+                            if event.type == pygame.QUIT:
+                                self.running = False
+                                break
+                    
+                    time.sleep(0.1)
+            except KeyboardInterrupt:
+                print("\n🛑 Keyboard interrupt received")
+            
+        except Exception as e:
+            print(f"❌ Failed to start drone system: {e}")
+            return False
+    
+    def start_integrated(self):
+        if not WEB_IMPORTS_AVAILABLE or not DRONE_IMPORTS_AVAILABLE:
+            print("❌ Missing dependencies for integrated mode")
+            return False
+        
+        try:
+            self.drone_system = DroneSystem()
+            self.drone_system.web_integration_enabled = True
+            
+            if not self.drone_system.initialize_all_systems():
+                print("❌ Failed to initialize drone systems")
+                return False
+            
+            # Start drone threads
+            self.drone_system.start_drone_threads()
+            self.web_server = WebServer()
+            
+            # Run web server (this will block)
+            self.web_server.run()
+            
+        except Exception as e:
+            print(f"❌ Failed to start integrated mode: {e}")
+            return False
+    
+def main():
+    """Main entry point"""
+    # Parse command line arguments
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        if arg in ['--help', '-h']:
+            return
+        elif arg == '--backend-only':
+            mode = 'backend-only'
+        elif arg == '--drone-only':
+            mode = 'drone-only'
+        elif arg == '--integrated':
+            mode = 'integrated'
+        else:
+            print(f"❌ Unknown mode: {arg}")
+            return
+    else:
+        mode = 'integrated'  # Default mode
+    
+    # Create and start application
+    app = DroneWebBridge(mode)
     
     try:
-        frontend.run()
+        if mode == 'backend-only':
+            success = app.start_backend_only()
+        elif mode == 'drone-only':
+            success = app.start_drone_only()
+        elif mode == 'integrated':
+            success = app.start_integrated()
+        
+        if not success:
+            print("❌ Failed to start application")
+            sys.exit(1)
+            
     except KeyboardInterrupt:
-        print("Keyboard interrupt detected")
+        print("\n🛑 Application interrupted by user")
     except Exception as e:
-        print(f"Error occurred: {e}")
-
-
-class TelloControllerStreamer(FrontEnd):
-    """
-    Alias class to match the reference naming convention
-    This extends FrontEnd with all the Flask-SocketIO functionality
-    """
-    pass
-
+        print(f"❌ Unexpected error: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
