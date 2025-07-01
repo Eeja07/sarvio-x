@@ -226,16 +226,24 @@ function Control({
         // 2. Stop autonomous mode
         socket.emit('stop_autonomous_mode')
         
-        // 3. Emergency landing
-        if (isFlying && telloConnected) {
-          socket.emit('emergency_auto') // Sekarang ada handler di backend
-        }
+        console.log('🚨 Emergency AUTO command sent')
+                
+      } catch (error) {
+        console.error('❌ Error sending emergency command:', error)
+      }
+    }
+  }, [socket, isConnected, isFlying, telloConnected, setControlMode])
+  const handleLandingAuto = useCallback(() => {
+    if (socket && isConnected) {
+      try {
+        // 1. Stop semua movement dulu
+        socket.emit('stop_movement')
+        
+        // 2. Stop autonomous mode
+        socket.emit('land_autonomous_mode')
         
         console.log('🚨 Emergency AUTO command sent')
-        
-        // 4. Update local state
-        setControlMode('Button Mode') // atau mode lain
-        
+                
       } catch (error) {
         console.error('❌ Error sending emergency command:', error)
       }
@@ -246,9 +254,6 @@ function Control({
     if (socket && telloConnected && isConnected) {
       try {
         socket.emit('start_autonomous_mode')
-        if (!isFlying) {
-          socket.emit('takeoff')     
-        }
         console.log('🤖 Autonomous mode started')
       } catch (error) {
         console.error('❌ Error starting autonomous mode:', error)
@@ -1754,26 +1759,26 @@ function Control({
                   <Bot className="w-12 h-12 mb-1" />
                 </button>
                 <button
-                  onClick={onSpeedButtonClick}
+                  onClick={handleEmergencyAuto}
                   disabled={!telloConnected}
                   className={`w-25 h-25 rounded-full flex flex-col items-center justify-center transition-colors ${
                     telloConnected
-                      ? 'bg-blue-600 text-ivory hover:bg-blue-700'
+                      ? 'bg-red-600 text-ivory hover:bg-blue-700'
                       : 'bg-deep-teal text-dark-cyan cursor-not-allowed'
                   }`}
                 >
-                  <Settings className="w-12 h-12 mb-1" />
+                  <AlertTriangle className="w-12 h-12 mb-1" />
                 </button>
                 <button
-                  onClick={handleEmergencyAuto}
+                  onClick={handleLandingAuto}
                   disabled={!telloConnected}
                   className={`w-32 h-25 rounded-xl flex items-center justify-center gap-2 transition-colors ${
                     telloConnected
-                      ? 'bg-red-600 text-ivory hover:bg-red-700'
+                      ? 'bg-orange-600 text-ivory hover:bg-red-700'
                       : 'bg-deep-teal text-dark-cyan cursor-not-allowed'
                   }`}
                 >
-                  <AlertTriangle className="w-12 h-12" />
+                  <PlaneLanding className="w-12 h-12" />
                 </button>
               </div>
             </div>

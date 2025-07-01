@@ -594,10 +594,10 @@ class DroneSystem:
                     break  # Exit loop immediately
                 
                 # Cek apakah autonomous mode masih aktif
-                if not self.set_autonomous_behavior:
-                    print("🤖 Autonomous behavior disabled, thread pausing...")
-                    time.sleep(0.5)
-                    continue
+                # if not self.set_autonomous_behavior:
+                #     print("🤖 Autonomous behavior disabled, thread pausing...")
+                #     time.sleep(0.5)
+                #     continue
                 
                 # Only run autonomous behavior if conditions are met
                 if (self.set_autonomous_behavior and 
@@ -654,7 +654,7 @@ class DroneSystem:
                                     'red_detected': True,
                                     'pixel_count': pixel_count
                                 })
-                                
+
                             except Exception as move_error:
                                 print(f"❌ Autonomous movement error: {move_error}")
                         
@@ -668,8 +668,8 @@ class DroneSystem:
                                     print("🚨 Emergency detected, stopping search")
                                     break
                                     
-                                self.tello.move_forward(20)
-                                time.sleep(1)
+                                self.tello.move_forward(35)
+                                time.sleep(0.5)
                                 
                                 last_action_time = current_time
                                 
@@ -837,10 +837,6 @@ class DroneSystem:
                     print("✅ Takeoff completed")
             
             elif cmd_type == 'land':
-                if self.set_autonomous_behavior:
-                    self.set_autonomous_behavior = False
-                    self.send_rc_control = True
-                    
                 if self.tello and self.send_rc_control:
                     self.tello.land()
                     self.send_rc_control = False
@@ -857,16 +853,9 @@ class DroneSystem:
                     self.set_autonomous_behavior = False
                     print("🚨 Emergency stop set for autonomous mode")
                 
-                # Stop all movement
-                self.left_right_velocity = 0
-                self.for_back_velocity = 0
-                self.up_down_velocity = 0
-                self.yaw_velocity = 0
-                
                 if self.tello:
                     self.tello.emergency()
                     self.send_rc_control = False
-                    shared_data.update_status({'flying': False})
                     print("🚨 Emergency executed")
             elif cmd_type == 'emergency_auto':
                 # PERBAIKAN: Handler khusus untuk emergency di autonomous mode
@@ -943,6 +932,7 @@ class DroneSystem:
                 self.for_back_velocity = 0
                 self.up_down_velocity = 0
                 self.yaw_velocity = 0
+                print("movement stop")
             
             elif cmd_type == 'set_speed':
                 self.speed = max(10, min(100, cmd_data.get('speed', 50)))
@@ -972,20 +962,14 @@ class DroneSystem:
             elif cmd_type == 'start_autonomous_mode':
                 # PERBAIKAN: Reset emergency flag
                 self.emergency_stop = False
-                
+                print("🛫 Auto-takeoff for autonomous mode")
+                self.tello.takeoff()
                 self.send_rc_control = False
                 self.set_autonomous_behavior = True
                 self.detection_enabled = True
                 shared_data.update_status({'autonomous_mode': True, 'ml_detection_enabled': True })
-                
+                shared_data.update_status({'flying': True})            
                 print("🤖 Autonomous mode: STARTED")
-                
-                # Ensure drone is flying for autonomous mode
-                if not self.send_rc_control:
-                    print("🛫 Auto-takeoff for autonomous mode")
-                    self.tello.takeoff()
-                    self.send_rc_control = False
-                    shared_data.update_status({'flying': True})            
             elif cmd_type == 'stop_autonomous_mode':
                 # PERBAIKAN: Enhanced stop autonomous
                 print("🤖 Stopping autonomous mode...")
@@ -993,20 +977,9 @@ class DroneSystem:
                 # 1. Set flags to stop autonomous behavior
                 self.set_autonomous_behavior = False
                 self.emergency_stop = False  # Reset emergency flag
-                
-                # 2. Stop all movement immediately
-                self.left_right_velocity = 0
-                self.for_back_velocity = 0
-                self.up_down_velocity = 0
-                self.yaw_velocity = 0
-                
-                # 3. Send stop command to drone
-                if self.tello and self.send_rc_control:
-                    try:
-                        self.tello.send_rc_control(0, 0, 0, 0)
-                    except Exception as e:
-                        print(f"❌ Error stopping movement: {e}")
-                
+                self.send_rc_control = True
+                self.tello.emergency()
+                self.send_rc_control = False
                 # 4. Update status
                 shared_data.update_status({
                     'autonomous_mode': False,
@@ -1014,6 +987,25 @@ class DroneSystem:
                 })
                 
                 print("🤖 Autonomous mode: STOPPED")
+                        
+            elif cmd_type == 'land_autonomous_mode':
+                # PERBAIKAN: Enhanced stop autonomous
+                print("🤖 Stopping autonomous mode...")
+                
+                # 1. Set flags to stop autonomous behavior
+                self.set_autonomous_behavior = False
+                self.emergency_stop = False  # Reset emergency flag
+                self.send_rc_control = True
+                self.tello.land()
+                self.send_rc_control = False
+                # 4. Update status
+                shared_data.update_status({
+                    'autonomous_mode': False,
+                    'autonomous_action': 'stopped'
+                })
+                
+                print("🤖 Autonomous mode: STOPPED")
+            
             
             elif cmd_type == 'manual_screenshot':
                 self._take_screenshot()
@@ -1557,6 +1549,14 @@ class WebServer:
             emit('drone_action', {'action': 'autonomous_stop', 'success': True})
             emit('autonomous_status', {'enabled': False})
             print("🤖 Autonomous mode stop command sent")
+        @self.socketio.on('land_autonomous_mode')
+        def handle_land_autonomous():
+            """Handle autonomous mode land"""
+            shared_data.add_command({'type': 'land_autonomous_mode'})
+            emit('drone_action', {'action': 'autonomous_stop', 'success': True})
+            emit('autonomous_status', {'enabled': False})
+            print("🤖 Autonomous mode stop command sent")
+
 
 
     def start_video_stream(self):
