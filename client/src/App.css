@@ -1,6 +1,9 @@
-/* Reset default styles */
+/* =========================
+   1. Reset & Base Styles
+========================= */
 * {
   box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 #root {
@@ -9,14 +12,14 @@
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  min-height: 100vh;
 }
 
-/* Custom slider styles untuk Tailwind */
+/* =========================
+   2. Custom Slider Styles
+========================= */
 .slider {
   background: #475569; /* slate-600 */
 }
-
 .slider::-webkit-slider-thumb {
   appearance: none;
   height: 16px;
@@ -27,7 +30,6 @@
   box-shadow: 0 0 2px 0 #000000;
   border: none;
 }
-
 .slider::-moz-range-thumb {
   height: 16px;
   width: 16px;
@@ -37,45 +39,37 @@
   border: none;
   box-shadow: 0 0 2px 0 #000000;
 }
-
-/* Firefox range track */
 .slider::-moz-range-track {
   background: #475569;
   height: 8px;
   border-radius: 4px;
 }
-
-/* Webkit range track */
 .slider::-webkit-slider-runnable-track {
   background: #475569;
   height: 8px;
   border-radius: 4px;
 }
 
-/* Custom scrollbar untuk dark theme */
+/* =========================
+   3. Custom Scrollbar
+========================= */
 ::-webkit-scrollbar {
   width: 8px;
 }
-
 ::-webkit-scrollbar-track {
   background: #1e293b; /* slate-800 */
 }
-
 ::-webkit-scrollbar-thumb {
   background: #475569; /* slate-600 */
   border-radius: 4px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b; /* slate-500 */
 }
 
-/* Smooth transitions */
-* {
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-
-/* Focus styles untuk accessibility */
+/* =========================
+   4. Focus Styles
+========================= */
 button:focus,
 input:focus,
 select:focus {
@@ -83,17 +77,21 @@ select:focus {
   outline-offset: 2px;
 }
 
-/* Responsive text sizing */
+/* =========================
+   5. Responsive Text Sizing
+========================= */
 @media (max-width: 768px) {
   .text-xl {
     font-size: 1.125rem;
   }
-  
   .text-lg {
     font-size: 1rem;
   }
 }
-/* Prevent text selection during drag */
+
+/* =========================
+   6. Utility Classes
+========================= */
 .select-none {
   -webkit-user-select: none;
   -moz-user-select: none;
@@ -101,16 +99,29 @@ select:focus {
   user-select: none;
 }
 
-/* Prevent scrolling during joystick use */
+/* =========================
+   7. Joystick Styles
+========================= */
 .joystick-container {
   touch-action: none;
   -webkit-touch-callout: none;
 }
 
-/* Larger touch targets for mobile */
 @media (max-width: 768px) {
   .joystick {
     width: 140px;
     height: 140px;
+  }
+}
+
+/* =========================
+   8. Access Notice Styles
+========================= */
+.access-notice {
+  display: none;
+}
+@media (max-width: 768px) {
+  .access-notice {
+    display: flex !important;
   }
 }
