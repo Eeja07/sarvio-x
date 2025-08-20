@@ -29,7 +29,7 @@ const modeIcons = {
   'Controller Mode': Gamepad,
   'Autonomous Mode': Bot
 };
-
+const DEV_FORCE_CONNECTED = true; // Set to true for development preview
 function Control({ 
   controlMode, 
   setControlMode,
@@ -85,7 +85,12 @@ function Control({
   const intervalRef = useRef(null)
   const gamepadIntervalRef = useRef(null)
   const keysPressed = useRef(new Set())
-
+  // DEV: Simulate connected mode for development preview
+  useEffect(() => {
+    if (DEV_FORCE_CONNECTED) {
+      setVideoFrame(true);
+    }
+  },);
 
   const handleTakeoff = useCallback(() => {
     if (socket && telloConnected && !isFlying && isConnected) {
@@ -789,8 +794,8 @@ function Control({
                       ? 'text-light-blue bg-deep-teal border-light-blue focus:ring-light-blue cursor-pointer'
                       : 'bg-light-blue border-gray-400 cursor-not-allowed'
                   }`}
-                  checked={joystickEnabled}
-                  onChange={(e) => setJoystickEnabled(e.target.checked)}
+                  checked={controlMode === 'Joystick Mode' ? joystickEnabled : false}
+                  onChange={(e) => controlMode === 'Joystick Mode' && setJoystickEnabled(e.target.checked)}
                 />
               </label>
             </div>
