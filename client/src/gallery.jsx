@@ -293,7 +293,7 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
       >
         {/* Modal Container */}
         <div 
-          className="bg-powder-blue rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden shadow-2xl"
+          className="bg-powder-blue rounded-2xl max-w-6xl w-full max-h-[85vh] overflow-hidden shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

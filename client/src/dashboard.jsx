@@ -4,6 +4,8 @@ import Control from './control'
 import Sensor from './sensor'
 import Gallery from './gallery'
 
+const DEV_FORCE_CONNECTED = true; // Set to true to simulate connected mode
+
 function Dashboard() {
   // State untuk drone control
   const [controlMode, setControlMode] = useState('Joystick Mode')
@@ -290,6 +292,26 @@ function Dashboard() {
     }
   }, [])
 
+  // DEV: Simulate connected mode for development preview
+  useEffect(() => {
+    if (DEV_FORCE_CONNECTED) {
+      setIsConnected(true);
+      setTelloConnected(true);
+      setIsFlying(true);
+      setSensorData(prev => ({
+        ...prev,
+        state: 'CONNECTED',
+        battery: 85,
+        wifiSignal: 90,
+        temperature: 22,
+        height: 120,
+        FPS: 60,
+        humanDetection: 'OFF',
+        amountScreenshoot: 3
+      }));
+    }
+  }, []);
+
   // ✅ PERBAIKAN: Simulasi update data yang hilang (solusi cepat)
   useEffect(() => {
     if (!isConnected || !telloConnected) return
@@ -446,31 +468,30 @@ function Dashboard() {
   }
   
   return (
-    <div className="min-h-screen bg-deep-teal text-white">
+    <div className="min-h-screen flex flex-col bg-deep-teal text-white">
       {/* Header */}
-      <header className="bg-powder-blue border-b border-slate-700 p-5">
+      <header className="bg-powder-blue border-b border-slate-700 p-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
             <div>
-              <h1 className="text-deep-teal text-4xl font-bold">SARVIO-X</h1>
+              <h1 className="text-deep-teal text-xl font-bold">SARVIO-X</h1>
             </div>
           </div>
           <div className="flex justify-between">
-            <span className={`text-4xl font-bold ${
+            <span className={`text-xl font-bold ${
               sensorData.state === 'CONNECTED' || sensorData.state === 'CONNECTING...' ? 'text-green-600' : 
               sensorData.state === 'ERROR' ? 'text-red-600' : 'text-red-400'
             }`}>
               {sensorData.state}
             </span>
           </div>
-          
-          <div className="flex items-center space-x-4">                      
-            <div className="flex gap-2">
+          <div className="flex items-center space-x-2">                      
+            <div className="flex gap-1">
               {!telloConnected ? (
                 <button 
                   onClick={handleConnect}
                   disabled={!isConnected}
-                  className={`rounded-2xl px-15 py-5 text-4xl font-medium transition-colors ${
+                  className={`rounded-xl px-6 py-2 text-base font-medium transition-colors ${
                     !isConnected
                       ? 'bg-gray-500 text-gray-300 cursor-not-allowed'
                       : 'bg-deep-teal hover:bg-dark-cyan text-white'
@@ -481,7 +502,7 @@ function Dashboard() {
               ) : (
                 <button 
                   onClick={handleDisconnect}
-                  className="px-15 py-5 rounded-2xl text-4xl font-medium transition-colors bg-red-600 hover:bg-red-700 text-white"
+                  className="px-6 py-2 rounded-xl text-base font-medium transition-colors bg-red-600 hover:bg-red-700 text-white"
                 >
                   {sensorData.state === 'DISCONNECTING...' ? 'Disconnecting...' : 'Disconnect'}
                 </button>
@@ -489,7 +510,7 @@ function Dashboard() {
             </div>
             <button 
               onClick={handleGalleryOpen}
-              className="rounded-2xl px-15 py-5 text-4xl font-medium transition-colors bg-deep-teal hover:bg-dark-cyan text-white"
+              className="rounded-xl px-6 py-2 text-base font-medium transition-colors bg-deep-teal hover:bg-dark-cyan text-white"
             >
               Gallery
             </button>
@@ -498,12 +519,12 @@ function Dashboard() {
       </header>
 
       {/* Main Dashboard */}
-      <main className="p-15">
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-3 w-full h-full">
+      <main className="flex-1 p-6">
+        <div className="flex flex-col lg:flex-row gap-6 flex-1 h-full">
+          <div className="w-full lg:w-2/3 h-full order-1 lg:order-1 flex flex-col">
             <Control {...controlProps} />
           </div>
-          <div className="flex-1 w-full h-full">
+          <div className="w-full lg:w-1/3 h-full order-2 lg:order-2 flex flex-col">
             <Sensor {...sensorProps} />
           </div>
         </div>

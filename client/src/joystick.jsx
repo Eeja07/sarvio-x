@@ -146,7 +146,7 @@ function VirtualJoystick({ joystickPosition, setJoystickPosition, telloConnected
   }
 
   return (
-    <div className="relative w-48 h-48 bg-deep-teal rounded-full border-2 border-slate-600">
+    <div className="relative w-40 h-40 bg-deep-teal rounded-full border-2 border-slate-600">
       <div
         ref={joystickRef}
         className={`absolute inset-3 bg-dark-cyan rounded-full transition-all duration-200 select-none ${
