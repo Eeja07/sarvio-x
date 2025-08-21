@@ -4,8 +4,11 @@ import os
 import cv2
 import numpy as np
 import pygame
+import mediapipe as mp
 from config import Config
-from shared_data import shared_data
+from sharedData import shared_data
+from collections import deque
+from datetime import datetime
 
 try:
     from djitellopy import Tello
@@ -469,7 +472,7 @@ class DroneSystem:
                     if (current_time - last_action_time > action_cooldown and
                         current_time - detection_time < 1.0):
                         
-                        if red_detected and not self.emergency_stop:  # Cek emergency
+                        if red_detected and not self.emergency_stop: # Cek emergency
                             print(f"🔴 Red detected in ROI! Pixel count: {pixel_count}")
                             print("🎯 Moving towards target...")
                             

@@ -1,9 +1,9 @@
 import sys
 import signal
 from config import Config
-from shared_data import shared_data
-from drone_system import DroneSystem, DRONE_IMPORTS_AVAILABLE
-from web_server import WebServer, WEB_IMPORTS_AVAILABLE
+from sharedData import shared_data
+from droneSystem import DroneSystem, DRONE_IMPORTS_AVAILABLE
+from webServer import WebServer, WEB_IMPORTS_AVAILABLE
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS

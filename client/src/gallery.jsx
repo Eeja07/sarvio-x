@@ -565,20 +565,19 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
             >
               <X className="w-8 h-8" />
             </button>
-            
             {activeTab === 'Images' ? (
               <img
-                src={selectedMedia.url}
+                src={getAbsoluteMediaUrl(selectedMedia.url)}
                 alt={selectedMedia.filename}
                 className="max-w-full max-h-[80vh] object-contain rounded-lg"
                 onClick={(e) => e.stopPropagation()}
                 onError={(e) => {
-                  console.error('Preview image load error:', selectedMedia.url)
+                  console.error('Preview image load error:', getAbsoluteMediaUrl(selectedMedia.url))
                   e.target.style.display = 'none'
                   e.target.nextSibling.style.display = 'flex'
                 }}
                 onLoad={() => {
-                  console.log('Preview image loaded:', selectedMedia.url)
+                  console.log('Preview image loaded:', getAbsoluteMediaUrl(selectedMedia.url))
                 }}
               />
             ) : (
@@ -587,17 +586,17 @@ function Gallery({ isOpen, onClose, socket, isConnected }) {
                 className="max-w-full max-h-[80vh] rounded-lg"
                 onClick={(e) => e.stopPropagation()}
                 onError={(e) => {
-                  console.error('Preview video load error:', selectedMedia.url)
+                  console.error('Preview video load error:', getAbsoluteMediaUrl(selectedMedia.url))
                   e.target.style.display = 'none'
                   e.target.nextSibling.style.display = 'flex'
                 }}
                 onLoadedData={() => {
-                  console.log('Preview video loaded:', selectedMedia.url)
+                  console.log('Preview video loaded:', getAbsoluteMediaUrl(selectedMedia.url))
                 }}
               >
-                <source src={selectedMedia.url} type="video/mp4" />
-                <source src={selectedMedia.url} type="video/webm" />
-                <source src={selectedMedia.url} type="video/ogg" />
+                <source src={getAbsoluteMediaUrl(selectedMedia.url)} type="video/mp4" />
+                <source src={getAbsoluteMediaUrl(selectedMedia.url)} type="video/webm" />
+                <source src={getAbsoluteMediaUrl(selectedMedia.url)} type="video/ogg" />
                 Your browser does not support the video tag.
               </video>
             )}

@@ -29,7 +29,7 @@ const modeIcons = {
   'Controller Mode': Gamepad,
   'Autonomous Mode': Bot
 };
-const DEV_FORCE_CONNECTED = true; // Set to true for development preview
+// const DEV_FORCE_CONNECTED = true; // Set to true for development preview
 function Control({ 
   controlMode, 
   setControlMode,
@@ -85,12 +85,12 @@ function Control({
   const intervalRef = useRef(null)
   const gamepadIntervalRef = useRef(null)
   const keysPressed = useRef(new Set())
-  // DEV: Simulate connected mode for development preview
-  useEffect(() => {
-    if (DEV_FORCE_CONNECTED) {
-      setVideoFrame(true);
-    }
-  },);
+  // // DEV: Simulate connected mode for development preview
+  // useEffect(() => {
+  //   if (DEV_FORCE_CONNECTED) {
+  //     setVideoFrame(true);
+  //   }
+  // },);
 
   const handleTakeoff = useCallback(() => {
     if (socket && telloConnected && !isFlying && isConnected) {
