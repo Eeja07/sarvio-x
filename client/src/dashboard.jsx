@@ -4,7 +4,7 @@ import Control from './control'
 import Sensor from './sensor'
 import Gallery from './gallery'
 
-const DEV_FORCE_CONNECTED = true; // Set to true to simulate connected mode
+// const DEV_FORCE_CONNECTED = true; // Set to true to simulate connected mode
 
 function Dashboard() {
   // State untuk drone control
@@ -293,24 +293,24 @@ function Dashboard() {
   }, [])
 
   // DEV: Simulate connected mode for development preview
-  useEffect(() => {
-    if (DEV_FORCE_CONNECTED) {
-      setIsConnected(true);
-      setTelloConnected(true);
-      setIsFlying(true);
-      setSensorData(prev => ({
-        ...prev,
-        state: 'CONNECTED',
-        battery: 85,
-        wifiSignal: 90,
-        temperature: 22,
-        height: 120,
-        FPS: 60,
-        humanDetection: 'OFF',
-        amountScreenshoot: 3
-      }));
-    }
-  }, []);
+  // useEffect(() => {
+  //   if (DEV_FORCE_CONNECTED) {
+  //     setIsConnected(true);
+  //     setTelloConnected(false);
+  //     setIsFlying(true);
+  //     setSensorData(prev => ({
+  //       ...prev,
+  //       state: 'DISCONNECTED',
+  //       battery: 85,
+  //       wifiSignal: 90,
+  //       temperature: 22,
+  //       height: 120,
+  //       FPS: 60,
+  //       humanDetection: 'OFF',
+  //       amountScreenshoot: 3
+  //     }));
+  //   }
+  // }, []);
 
   // ✅ PERBAIKAN: Simulasi update data yang hilang (solusi cepat)
   useEffect(() => {
@@ -363,43 +363,12 @@ function Dashboard() {
 
   // Connect/disconnect functions
   const handleConnect = async () => {
-    if (socket && !telloConnected && isConnected) {
-      console.log('🔗 Attempting to connect to Tello...')
-      try {
-        socket.emit('connect_tello')
-        setSensorData(prev => ({
-          ...prev,
-          state: 'CONNECTING...',
-          wifiSignal: 100,
-          temperature: 20,
-          Height: 0,
-          FPS: 0,
-          humanDetection: 'OFF',
-          amountScreenshoot: 0
-        }))
-      } catch (error) {
-        console.error('❌ Failed to send connect command:', error)
-      }
-    } else if (!isConnected) {
-      console.warn('⚠️ Backend server not connected')
-    }
-  }
+    window.location.reload(); // Reload page on connect
+  };
 
   const handleDisconnect = async () => {
-    if (socket && telloConnected) {
-      console.log('🔌 Attempting to disconnect from Tello...')
-      try {
-        socket.emit('stop_movement')
-        socket.emit('disconnect_tello')
-        setSensorData(prev => ({
-          ...prev,
-          state: 'DISCONNECTING...'
-        }))
-      } catch (error) {
-        console.error('❌ Failed to send disconnect command:', error)
-      }
-    }
-  }
+    window.location.reload(); // Reload page on disconnect
+  };
 
   const handleGalleryOpen = () => { 
     setGalleryOpen(true) 
@@ -479,34 +448,19 @@ function Dashboard() {
           </div>
           <div className="flex justify-between">
             <span className={`text-xl font-bold ${
-              sensorData.state === 'CONNECTED' || sensorData.state === 'CONNECTING...' ? 'text-green-600' : 
-              sensorData.state === 'ERROR' ? 'text-red-600' : 'text-red-400'
+              telloConnected ? 'text-green-600' : 'text-red-400'
             }`}>
-              {sensorData.state}
+              {telloConnected ? 'CONNECTED' : 'DISCONNECTED'}
             </span>
           </div>
           <div className="flex items-center space-x-2">                      
             <div className="flex gap-1">
-              {!telloConnected ? (
-                <button 
-                  onClick={handleConnect}
-                  disabled={!isConnected}
-                  className={`rounded-xl px-6 py-2 text-base font-medium transition-colors ${
-                    !isConnected
-                      ? 'bg-gray-500 text-gray-300 cursor-not-allowed'
-                      : 'bg-deep-teal hover:bg-dark-cyan text-white'
-                  }`}
-                >
-                  {sensorData.state === 'CONNECTING...' ? 'Connecting...' : 'Connect'}
-                </button>
-              ) : (
-                <button 
-                  onClick={handleDisconnect}
-                  className="px-6 py-2 rounded-xl text-base font-medium transition-colors bg-red-600 hover:bg-red-700 text-white"
-                >
-                  {sensorData.state === 'DISCONNECTING...' ? 'Disconnecting...' : 'Disconnect'}
-                </button>
-              )}
+              <button 
+                onClick={() => window.location.reload()}
+                className="rounded-xl px-6 py-2 text-base font-medium transition-colors bg-deep-teal hover:bg-dark-cyan text-white"
+              >
+                Reload
+              </button>
             </div>
             <button 
               onClick={handleGalleryOpen}
